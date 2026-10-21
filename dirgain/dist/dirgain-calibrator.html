@@ -4,121 +4,375 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DirGain Calibrator</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%239cc21f' stroke-width='3'/%3E%3Cpath d='M16 2v8M16 22v8M2 16h8M22 16h8' stroke='%239cc21f' stroke-width='3'/%3E%3C/svg%3E">
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #5d6677; --line: #d9dde5;
-    --accent: #2457c5; --accent-ink: #ffffff; --warn: #a45200; --good: #1d7a46; --bad: #b3261e;
-    --task-bg: #14171d; --task-ink: #e8ebf0; --target: #f0a020; --hit: #3ccf7a; --miss: #ef5350;
+    color-scheme: light;
+    --page: oklch(0.972 0.006 85);
+    --surface: #fbfaf6;
+    --raise: oklch(0.945 0.008 85);
+    --ink: oklch(0.23 0.012 85);
+    --ink-2: oklch(0.44 0.012 85);
+    --muted: oklch(0.58 0.01 85);
+    --line: oklch(0.88 0.008 85);
+    --line-strong: oklch(0.8 0.01 85);
+    --accent: oklch(0.86 0.19 122);
+    --accent-ink: oklch(0.2 0.03 122);
+    --accent-text: oklch(0.47 0.12 125);
+    --accent-wash: oklch(0.93 0.07 122);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --good: #006300;
+    --bad: #b52c2c;
+    --warn: oklch(0.52 0.13 70);
+    --focus: oklch(0.55 0.15 250);
+    --shadow: 0 1px 0 oklch(0.2 0.01 85 / 0.04), 0 8px 24px -12px oklch(0.2 0.01 85 / 0.18);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #101318; --panel: #181c23; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2b313c;
-      --accent: #6d9bff; --accent-ink: #0b1020; --warn: #f0a050; --good: #57d18a; --bad: #ff7b72;
+      color-scheme: dark;
+      --page: oklch(0.175 0.006 85);
+      --surface: #1e1d1a;
+      --raise: oklch(0.25 0.007 85);
+      --ink: oklch(0.94 0.008 85);
+      --ink-2: oklch(0.79 0.01 85);
+      --muted: oklch(0.63 0.01 85);
+      --line: oklch(0.3 0.008 85);
+      --line-strong: oklch(0.38 0.01 85);
+      --accent: oklch(0.88 0.19 122);
+      --accent-ink: oklch(0.2 0.03 122);
+      --accent-text: oklch(0.86 0.17 122);
+      --accent-wash: oklch(0.32 0.06 122);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --good: #0ca30c;
+      --bad: #ff7b72;
+      --warn: oklch(0.8 0.13 75);
+      --focus: oklch(0.75 0.13 250);
+      --shadow: 0 1px 0 oklch(0 0 0 / 0.2), 0 10px 30px -14px oklch(0 0 0 / 0.6);
     }
   }
   :root[data-theme="dark"] {
-    --bg: #101318; --panel: #181c23; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2b313c;
-    --accent: #6d9bff; --accent-ink: #0b1020; --warn: #f0a050; --good: #57d18a; --bad: #ff7b72;
+    color-scheme: dark;
+    --page: oklch(0.175 0.006 85);
+    --surface: #1e1d1a;
+    --raise: oklch(0.25 0.007 85);
+    --ink: oklch(0.94 0.008 85);
+    --ink-2: oklch(0.79 0.01 85);
+    --muted: oklch(0.63 0.01 85);
+    --line: oklch(0.3 0.008 85);
+    --line-strong: oklch(0.38 0.01 85);
+    --accent: oklch(0.88 0.19 122);
+    --accent-ink: oklch(0.2 0.03 122);
+    --accent-text: oklch(0.86 0.17 122);
+    --accent-wash: oklch(0.32 0.06 122);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --good: #0ca30c;
+    --bad: #ff7b72;
+    --warn: oklch(0.8 0.13 75);
+    --focus: oklch(0.75 0.13 250);
+    --shadow: 0 1px 0 oklch(0 0 0 / 0.2), 0 10px 30px -14px oklch(0 0 0 / 0.6);
   }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
-  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  h2 { font-size: 16px; margin: 0 0 12px; }
-  p.lead { color: var(--muted); margin: 0 0 20px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
-  label { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0; color: var(--muted); }
-  input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: 140px; }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
-  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .mono, .readout, td.num { font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace; }
+  a { color: var(--accent-text); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+
+  /* top bar */
+  .top { display: flex; align-items: center; gap: 14px; padding: 18px 28px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; letter-spacing: 0.01em; }
+  .brand svg { width: 22px; height: 22px; }
+  .brand svg * { stroke: var(--accent-text); }
+  .tag { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .top .spacer { flex: 1; }
+  .badge { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--accent-wash); color: var(--ink); }
+  .themebtn { border: 1px solid var(--line); background: transparent; color: var(--ink-2); border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+
+  /* shell */
+  .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
+  nav.steps { position: sticky; top: 0; align-self: start; padding: 28px 20px 28px 28px; }
+  nav.steps ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  nav.steps button {
+    width: 100%; display: grid; grid-template-columns: 30px 1fr; align-items: start; gap: 2px 10px;
+    text-align: left; border: 0; background: transparent; color: var(--ink-2); font: inherit;
+    padding: 10px 10px; border-radius: 10px; cursor: pointer;
+  }
+  nav.steps button:hover { background: var(--raise); }
+  nav.steps button[aria-current="step"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+  nav.steps .n {
+    grid-row: span 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 12.5px; font-weight: 650; border: 1.5px solid var(--line-strong); color: var(--ink-2);
+  }
+  nav.steps button[aria-current="step"] .n { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  nav.steps button.done .n { border-color: var(--accent-text); color: var(--accent-text); }
+  nav.steps .t { font-weight: 600; font-size: 14.5px; }
+  nav.steps .s { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+
+  main { padding: 28px 28px 80px; min-width: 0; }
+  .panel { display: none; }
+  .panel.on { display: block; animation: rise 360ms cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .panel.on { animation: none; } }
+  .eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  h1 { font-size: 30px; line-height: 1.15; margin: 0 0 10px; font-weight: 680; letter-spacing: -0.01em; }
+  h2 { font-size: 18px; margin: 34px 0 10px; font-weight: 650; }
+  h3 { font-size: 15px; margin: 0 0 6px; font-weight: 650; }
+  p { max-width: 68ch; margin: 0 0 12px; }
+  .lede { color: var(--ink-2); font-size: 16px; max-width: 62ch; }
   .muted { color: var(--muted); }
-  .warn { color: var(--warn); }
-  .good { color: var(--good); }
-  .bad { color: var(--bad); }
-  .banner { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
-  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
-  .chart svg { width: 100%; height: auto; max-width: 420px; display: block; margin: 0 auto; }
-  .chart .ref { stroke: var(--line); fill: none; }
-  .chart .axis { stroke: var(--line); }
-  .chart .cur { stroke: var(--accent); fill: none; stroke-width: 2; }
-  .chart .prop { stroke: var(--warn); fill: none; stroke-width: 2; stroke-dasharray: 6 4; }
-  .chart .pt { fill: var(--muted); }
-  .chart text { fill: var(--muted); font-size: 11px; }
-  #task { position: fixed; inset: 0; background: var(--task-bg); display: none; cursor: none; }
-  #task.on { display: block; }
-  #task canvas { width: 100%; height: 100%; display: block; }
-  #hud { position: fixed; top: 12px; left: 16px; color: var(--task-ink); font-size: 13px; opacity: 0.75; pointer-events: none; }
-  pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; }
+  .small { font-size: 13px; }
+
+  /* forms */
+  .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px 18px; margin: 22px 0 8px; max-width: 760px; }
+  label.field { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
+  input[type="number"], select {
+    font: inherit; font-size: 15px; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; width: 100%;
+  }
+  .choice { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; max-width: 760px; margin: 10px 0; }
+  .choice label {
+    display: grid; grid-template-columns: 20px 1fr; gap: 2px 10px; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer;
+  }
+  .choice label:has(input:checked) { border-color: var(--accent-text); background: var(--accent-wash); }
+  .choice input { margin: 3px 0 0; grid-row: span 2; accent-color: var(--accent-text); }
+  .choice b { font-weight: 600; }
+  .choice span { font-size: 13px; color: var(--ink-2); }
+  details.adv { margin: 16px 0; max-width: 760px; }
+  details.adv summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
+  .check { display: flex; gap: 10px; align-items: center; font-size: 14px; color: var(--ink-2); margin: 10px 0; }
+  .check input { accent-color: var(--accent-text); width: 16px; height: 16px; }
+
+  .readout { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 18px 0 6px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); max-width: 760px; }
+  .readout div { display: grid; }
+  .readout b { font-size: 22px; font-weight: 600; color: var(--ink); }
+  .readout span { font-size: 12px; color: var(--muted); font-family: system-ui, sans-serif; }
+
+  /* buttons */
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 18px 0; }
+  button.btn {
+    font: inherit; font-size: 14.5px; font-weight: 600; border-radius: 9px; padding: 10px 16px; cursor: pointer;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+    transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1), background 120ms;
+  }
+  button.btn:hover { background: var(--raise); }
+  button.btn:active { transform: translateY(1px); }
+  button.btn.primary { background: var(--accent); border-color: oklch(0.7 0.17 122); color: var(--accent-ink); }
+  button.btn.primary:hover { background: oklch(0.83 0.19 122); }
+  button.btn.quiet { border-color: transparent; background: transparent; color: var(--ink-2); }
+  button.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  .hint { font-size: 13px; color: var(--muted); }
+
+  /* meters and verdicts */
+  .meterrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; align-items: center; max-width: 560px; margin: 16px 0 4px; }
+  .meter { height: 8px; border-radius: 99px; background: var(--accent-wash); overflow: hidden; }
+  .meter span { display: block; height: 100%; background: var(--accent-text); transform-origin: left; transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1); border-radius: 99px; }
+  .meterrow .num { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  .verdict { display: grid; grid-template-columns: 28px 1fr; gap: 4px 12px; align-items: start; margin: 22px 0 10px; max-width: 760px; }
+  .verdict .icon { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+  .verdict.good .icon { background: color-mix(in oklch, var(--good) 18%, transparent); color: var(--good); }
+  .verdict.bad .icon { background: color-mix(in oklch, var(--bad) 18%, transparent); color: var(--bad); }
+  .verdict.neutral .icon { background: var(--raise); color: var(--ink-2); }
+  .verdict h3 { margin: 2px 0 2px; font-size: 16px; }
+  .verdict p { margin: 0; color: var(--ink-2); font-size: 14px; }
+
+  table.facts { border-collapse: collapse; margin: 8px 0 16px; min-width: min(100%, 520px); font-size: 14px; }
+  table.facts td, table.facts th { padding: 7px 14px 7px 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  table.facts th { font-weight: 500; color: var(--muted); font-size: 12.5px; }
+  table.facts td.num { font-variant-numeric: tabular-nums; }
+  .ok { color: var(--good); }
+  .no { color: var(--bad); }
+
+  /* results layout */
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); gap: 28px; align-items: start; margin-top: 8px; }
+  @media (max-width: 1020px) { .split { grid-template-columns: 1fr; } }
+  figure.chart { margin: 0; padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+  figure.chart figcaption { font-size: 13px; color: var(--ink-2); margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+  .key { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+  .key i { display: inline-block; width: 16px; height: 2px; border-radius: 2px; }
+  .key i.s1 { background: var(--series-1); }
+  .key i.s2 { background: var(--series-2); }
+  .key i.pt { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg .grid { stroke: var(--line); fill: none; stroke-width: 1; }
+  svg .base { stroke: var(--line-strong); fill: none; stroke-width: 1; }
+  svg .tick { fill: var(--muted); font-size: 11px; font-family: system-ui, sans-serif; }
+  svg .axis { fill: var(--ink-2); font-size: 11.5px; font-family: system-ui, sans-serif; }
+  svg .s1 { stroke: var(--series-1); stroke-width: 2; fill: none; stroke-linejoin: round; }
+  svg .s2 { stroke: var(--series-2); stroke-width: 2; fill: none; stroke-linejoin: round; }
+  svg .pt { fill: var(--muted); stroke: var(--surface); stroke-width: 2; }
+  svg .hit, svg .hitbar { fill: transparent; cursor: default; }
+  svg .hit:hover + *, svg .hit:focus { outline: none; }
+  svg .ci { stroke: var(--series-1); stroke-width: 6; stroke-linecap: round; }
+  svg .est { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+  details.table { margin-top: 10px; font-size: 13px; }
+  details.table summary { cursor: pointer; color: var(--ink-2); }
+  details.table table { border-collapse: collapse; margin-top: 8px; width: 100%; }
+  details.table td, details.table th { padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); text-align: left; font-variant-numeric: tabular-nums; }
+
+  /* install */
+  .paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0; margin: 22px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+  .paths section { padding: 22px 24px; }
+  .paths section + section { border-left: 1px solid var(--line); }
+  @media (max-width: 740px) { .paths section + section { border-left: 0; border-top: 1px solid var(--line); } }
+  .paths .tagline { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+  .paths ol { padding-left: 20px; margin: 10px 0; font-size: 14px; }
+  .paths li { margin: 6px 0; }
+  .callout { font-size: 13.5px; color: var(--ink-2); background: var(--raise); border-radius: 10px; padding: 10px 12px; margin: 12px 0; max-width: 68ch; }
+  .callout b { color: var(--ink); }
+  pre.code { font-size: 12.5px; background: var(--raise); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+  .banner { margin: 0 0 22px; padding: 9px 14px; border-radius: 10px; background: var(--accent-wash); color: var(--ink); font-size: 13.5px; max-width: 760px; }
+
+  /* arena */
+  #arena { position: fixed; inset: 0; background: #15171c; display: none; cursor: none; z-index: 10; }
+  #arena.on { display: block; }
+  #arena canvas { width: 100%; height: 100%; display: block; }
+  #arena .hud { position: fixed; top: 14px; left: 0; right: 0; text-align: center; color: rgba(232, 235, 240, 0.7); font-size: 12.5px; letter-spacing: 0.02em; pointer-events: none; }
+  #arena .bar { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: rgba(198, 244, 50, 0.12); }
+  #arena .bar span { display: block; height: 100%; background: #c6f432; transform-origin: left; transform: scaleX(0); transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+  #tip { position: fixed; z-index: 20; pointer-events: none; background: var(--ink); color: var(--page); font-size: 12.5px; padding: 6px 9px; border-radius: 7px; max-width: 260px; opacity: 0; transition: opacity 100ms; }
+  #tip.on { opacity: 1; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.steps { position: static; padding: 14px 16px 0; overflow-x: auto; }
+    nav.steps ol { grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); }
+    main { padding: 18px 16px 60px; }
+    .top { padding: 14px 16px; flex-wrap: wrap; }
+    .tag { display: none; }
+    h1 { font-size: 25px; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <h1>DirGain Calibrator</h1>
-  <p class="lead">Measures whether your flicks overshoot or undershoot differently by direction, fits a per-direction gain profile only if the bias is statistically real, and checks with a blind A/B test whether the profile actually helps you.</p>
-  <div id="simBanner" class="banner" hidden>Simulation mode: a synthetic user replaces your mouse. Results show the pipeline working, not your aim.</div>
-
-  <div class="grid">
-    <section class="card">
-      <h2>1. Setup</h2>
-      <label>Mouse DPI <input id="dpi" type="number" min="100" max="32000" step="50"></label>
-      <label>Cursor px per count <input id="sens" type="number" min="0.05" max="10" step="0.05"></label>
-      <label>Anchor (gain kept at 1) <select id="anchor"><option value="horizontal">horizontal</option><option value="vertical">vertical</option><option value="mean">direction average</option></select></label>
-      <p class="muted" id="sensNote"></p>
-      <p class="muted" id="lockNote">Uses raw mouse input (pointer lock, unadjusted movement). Turn off OS pointer acceleration for the most faithful numbers. Press Esc to stop a run.</p>
-    </section>
-
-    <section class="card">
-      <h2>2. Calibrate</h2>
-      <p class="muted">Flick from the center to each target and click it. One block is 72 targets (24 directions × 3 distances, about 2 minutes). Your current profile is applied while you play, so each round measures what is left.</p>
-      <p id="calibCount"></p>
-      <div class="row">
-        <button class="primary" id="btnCalib">Start calibration block</button>
-        <button id="btnAnalyze">Analyze</button>
-      </div>
-      <div id="analysis"></div>
-    </section>
-
-    <section class="card">
-      <h2>Profile</h2>
-      <div class="chart" id="chart"></div>
-      <div id="profileTable"></div>
-      <div class="row">
-        <button class="primary" id="btnAccept" disabled>Accept proposed profile</button>
-        <button id="btnResetProfile">Reset to flat</button>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>3. Validate (blind A/B)</h2>
-      <p class="muted">192 targets in alternating blocks with and without the profile's directional shape (the control keeps the same average gain); you are not told which. The headline is time to hit. Pool several sessions: detecting a 20 ms effect needs roughly 280 trials per condition.</p>
-      <div class="row">
-        <button class="primary" id="btnAB">Start A/B session</button>
-        <button id="btnTrack">Tracking guard (4 × 10 s)</button>
-      </div>
-      <div id="abResult"></div>
-    </section>
-
-    <section class="card">
-      <h2>4. Export</h2>
-      <p class="muted"><code>profile.conf</code> is read by the Linux daemon and the Windows adapter. Raw data lets you re-run the analysis later.</p>
-      <div class="row">
-        <button id="btnConf">Download profile.conf</button>
-        <button id="btnJson">Download profile.json</button>
-        <button id="btnData">Download raw data</button>
-        <label style="margin:0"><span class="muted">Import data</span><input id="importData" type="file" accept="application/json"></label>
-      </div>
-      <div class="row"><button id="btnClear">Delete all sessions</button></div>
-      <p class="muted" id="storeNote"></p>
-    </section>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke-width="2"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke-width="2"/></svg>
+    DirGain
   </div>
-</main>
+  <p class="tag">Per-direction mouse gain, measured on you, applied to any mouse.</p>
+  <span class="spacer"></span>
+  <span class="badge" id="simBadge" hidden>Simulation</span>
+  <button class="themebtn" id="themeBtn" type="button" aria-label="Switch color theme">Theme</button>
+</header>
+<div class="shell">
+  <nav class="steps" aria-label="Calibration steps">
+    <ol>
+      <li><button type="button" data-step="setup"><span class="n">1</span><span class="t">Match your game</span><span class="s" id="st-setup"></span></button></li>
+      <li><button type="button" data-step="calibrate"><span class="n">2</span><span class="t">Calibrate</span><span class="s" id="st-calibrate"></span></button></li>
+      <li><button type="button" data-step="validate"><span class="n">3</span><span class="t">Prove it helps</span><span class="s" id="st-validate"></span></button></li>
+      <li><button type="button" data-step="install"><span class="n">4</span><span class="t">Use it in games</span><span class="s" id="st-install"></span></button></li>
+      <li><button type="button" data-step="data"><span class="n">5</span><span class="t">Your data</span><span class="s" id="st-data"></span></button></li>
+    </ol>
+  </nav>
 
-<div id="task"><canvas id="canvas"></canvas><div id="hud"></div></div>
+  <main>
+    <p class="banner" id="simBanner" hidden>Simulation mode: a synthetic player stands in for your mouse, so you can see the whole flow. Remove <span class="mono">?sim=1</span> from the address to calibrate yourself.</p>
+    <section class="panel" id="panel-setup" aria-labelledby="h-setup">
+      <p class="eyebrow">Step 1</p>
+      <h1 id="h-setup">Match your game</h1>
+      <p class="lede">You will flick to targets with the same hand movement your game uses, so the bias DirGain measures is the one you actually aim with.</p>
+      <div class="fields">
+        <label class="field">Game<select id="game"></select></label>
+        <label class="field" id="sensField">In-game sensitivity<input id="sens" type="number" min="0.001" step="0.01" inputmode="decimal"></label>
+        <label class="field" id="cmField" hidden>cm per 360°<input id="cm360" type="number" min="1" step="0.1" inputmode="decimal"></label>
+        <label class="field">Mouse DPI<input id="dpi" type="number" min="100" max="32000" step="50" inputmode="numeric"></label>
+        <label class="field">Horizontal field of view (°)<input id="fov" type="number" min="60" max="130" step="1" inputmode="numeric"></label>
+      </div>
+      <div class="readout mono" id="sensReadout"></div>
+      <h2>Task style</h2>
+      <div class="choice" role="radiogroup" aria-label="Task style">
+        <label><input type="radio" name="mode" value="fps"><b>FPS camera</b><span>The view turns like in your game. Recommended.</span></label>
+        <label><input type="radio" name="mode" value="2d"><b>Desktop cursor</b><span>A cursor moves on a flat screen.</span></label>
+      </div>
+      <details class="adv">
+        <summary>Advanced</summary>
+        <div class="fields">
+          <label class="field">Keep gain unchanged along<select id="anchor"><option value="horizontal">left and right (recommended)</option><option value="vertical">up and down</option><option value="mean">the average of all directions</option></select></label>
+          <label class="field" id="cursorField">Cursor pixels per count (desktop mode)<input id="sens2d" type="number" min="0.05" max="10" step="0.05"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="allowOdd"> Allow different gain for left vs right and up vs down</label>
+      </details>
+      <div class="actions"><button class="btn primary" type="button" data-go="calibrate">Continue to calibration</button></div>
+      <p class="hint">Use Chrome or Edge on Windows: they deliver raw mouse counts, so Windows pointer settings do not matter here.</p>
+    </section>
+
+    <section class="panel" id="panel-calibrate" aria-labelledby="h-cal">
+      <p class="eyebrow">Step 2</p>
+      <h1 id="h-cal">Calibrate</h1>
+      <p class="lede">Flick to each target and click it. A block is 72 targets in 24 directions at three distances and takes about two minutes. Your current profile stays on while you play, so every round measures what is left.</p>
+      <div class="meterrow"><div id="calMeter"></div><span class="num" id="calNum"></span></div>
+      <p class="hint" id="calHint"></p>
+      <div class="actions">
+        <button class="btn primary" type="button" id="btnCalib">Start a block</button>
+        <button class="btn" type="button" id="btnAnalyze">Analyze</button>
+      </div>
+      <div id="analysis" aria-live="polite"></div>
+      <div class="split">
+        <div>
+          <div id="analysisFacts"></div>
+          <div class="actions">
+            <button class="btn primary" type="button" id="btnAccept" disabled>Use the proposed profile</button>
+            <button class="btn quiet" type="button" id="btnResetProfile">Reset to flat</button>
+          </div>
+        </div>
+        <figure class="chart">
+          <figcaption><span class="key"><i class="s1"></i>Current profile</span><span class="key"><i class="s2"></i>Proposed</span><span class="key"><i class="pt"></i>Implied by your flicks</span></figcaption>
+          <div id="chart"></div>
+          <details class="table"><summary>Table view</summary><div id="chartTable"></div></details>
+        </figure>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-validate" aria-labelledby="h-val">
+      <p class="eyebrow">Step 3</p>
+      <h1 id="h-val">Prove it helps</h1>
+      <p class="lede">A blind test: blocks with and without your profile's directional shape, in an order you are not told. Both keep the same average speed, so only the direction effect is tested. Keep the profile only if it makes you faster.</p>
+      <div class="meterrow"><div id="abMeter"></div><span class="num" id="abNum"></span></div>
+      <div class="actions">
+        <button class="btn primary" type="button" id="btnAB">Start an A/B session</button>
+        <button class="btn" type="button" id="btnTrack">Tracking check (4 × 10 s)</button>
+      </div>
+      <div id="abResult" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-install" aria-labelledby="h-inst">
+      <p class="eyebrow">Step 4</p>
+      <h1 id="h-inst">Use it in your games</h1>
+      <p class="lede">Two ways to apply your profile on Windows. Both work in games because they change the mouse signal before any game sees it.</p>
+      <div id="installBody"></div>
+    </section>
+
+    <section class="panel" id="panel-data" aria-labelledby="h-data">
+      <p class="eyebrow">Step 5</p>
+      <h1 id="h-data">Your data</h1>
+      <p class="lede">Everything stays in this browser. Download the raw data to keep it or move it to another computer.</p>
+      <div id="dataBody"></div>
+      <div class="actions">
+        <button class="btn" type="button" id="btnData">Download raw data</button>
+        <label class="btn" style="display:inline-flex;gap:8px;align-items:center">Import data<input id="importData" type="file" accept="application/json" class="sr"></label>
+        <button class="btn quiet" type="button" id="btnClear">Delete all sessions</button>
+      </div>
+      <p class="hint" id="storeNote"></p>
+    </section>
+  </main>
+</div>
+
+<div id="arena"><canvas id="canvas"></canvas><div class="bar"><span id="arenaProgress"></span></div><div class="hud" id="hud"></div></div>
+<div id="tip" role="tooltip"></div>
 <script type="module">
 // ---- core/dirgain.js
 // Even harmonics of the movement angle (same gain both ways along an axis) and the first odd
@@ -753,51 +1007,6 @@ function bootstrapDiff(a, b, iters = 2000, seed = 1) {
   };
 }
 
-// ---- web/charts.js
-
-
-const SIZE = 360;
-const C = SIZE / 2;
-const R0 = 110;
-const EXAGGERATE = 4;
-
-function radius(logGain) {
-  return R0 * (1 + EXAGGERATE * (Math.exp(logGain) - 1));
-}
-
-function curve(fn) {
-  const pts = [];
-  for (let i = 0; i <= 180; i++) {
-    const th = (i * 2 * Math.PI) / 180;
-    const r = radius(fn(th));
-    pts.push(`${(C + r * Math.cos(th)).toFixed(1)},${(C + r * Math.sin(th)).toFixed(1)}`);
-  }
-  return pts.join(" ");
-}
-
-// Screen convention: +x right, +y down, matching mouse reports.
-function polarChart({ current, proposed, dirPoints = [] }) {
-  const parts = [`<svg viewBox="0 0 ${SIZE} ${SIZE}" role="img" aria-label="Gain by movement direction">`];
-  for (const g of [0.9, 1.0, 1.1]) {
-    parts.push(`<circle class="ref" cx="${C}" cy="${C}" r="${radius(Math.log(g)).toFixed(1)}"/>`);
-  }
-  parts.push(`<line class="axis" x1="${C - 170}" y1="${C}" x2="${C + 170}" y2="${C}"/>`);
-  parts.push(`<line class="axis" x1="${C}" y1="${C - 170}" x2="${C}" y2="${C + 170}"/>`);
-  parts.push(`<text x="${C + R0 * 1.42}" y="${C - 4}">right</text>`);
-  parts.push(`<text x="${C + 4}" y="${C + R0 * 1.55}">down</text>`);
-  parts.push(`<text x="${C + 4}" y="${C - radius(Math.log(1.1)) - 2}">+10%</text>`);
-  for (const p of dirPoints) {
-    const r = radius(p.logRel);
-    for (const th of [p.theta, p.theta + Math.PI]) {
-      parts.push(`<circle class="pt" cx="${(C + r * Math.cos(th)).toFixed(1)}" cy="${(C + r * Math.sin(th)).toFixed(1)}" r="2.5"/>`);
-    }
-  }
-  if (current) parts.push(`<polyline class="cur" points="${curve((th) => logGainAtAngle(current, th))}"/>`);
-  if (proposed) parts.push(`<polyline class="prop" points="${curve((th) => logGainAtAngle(proposed, th))}"/>`);
-  parts.push("</svg>");
-  return parts.join("");
-}
-
 // ---- web/protocol.js
 
 
@@ -824,6 +1033,15 @@ function makeBlock(reps, seed) {
   return trials;
 }
 
+// FPS mode: flick amplitudes in degrees of camera rotation, a typical spread for shooters.
+const FPS_AMPS_DEG = [8, 18, 32];
+
+// Target in (yaw right, pitch down) degrees from the start view; radius is angular.
+function fpsTargetFor(trial) {
+  const D = FPS_AMPS_DEG[trial.amp];
+  return { x: D * Math.cos(trial.theta), y: D * Math.sin(trial.theta), D, radius: Math.max(0.8, D / 24) };
+}
+
 function targetFor(trial, viewW, viewH) {
   const D = AMP_FRACS[trial.amp] * Math.min(viewW, viewH);
   return {
@@ -832,6 +1050,513 @@ function targetFor(trial, viewW, viewH) {
     D,
     radius: Math.max(10, D / 24),
   };
+}
+
+// ---- web/arena.js
+
+
+
+
+const TRIAL_TIMEOUT_MS = 3000;
+const DEG = Math.PI / 180;
+const COLORS = {
+  sky: "#15171c",
+  horizon: "#23262d",
+  grid: "rgba(214, 220, 230, 0.07)",
+  gridStrong: "rgba(214, 220, 230, 0.18)",
+  target: "#ff7a52",
+  targetHi: "#ffd9c9",
+  hit: "#c6f432",
+  miss: "#ef5350",
+  crosshair: "#c6f432",
+  outline: "rgba(10, 11, 13, 0.85)",
+  ink: "rgba(232, 235, 240, 0.85)",
+};
+
+function dir(yawDeg, pitchDeg) {
+  const y = yawDeg * DEG;
+  const p = pitchDeg * DEG;
+  return [Math.cos(p) * Math.sin(y), Math.sin(p), Math.cos(p) * Math.cos(y)];
+}
+
+function camera(yawDeg, pitchDeg, W, H, hfovDeg) {
+  const f = dir(yawDeg, pitchDeg);
+  const y = yawDeg * DEG;
+  const r = [Math.cos(y), 0, -Math.sin(y)];
+  const u = [f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]];
+  const F = W / 2 / Math.tan((hfovDeg * DEG) / 2);
+  return (v) => {
+    const cz = v[0] * f[0] + v[1] * f[1] + v[2] * f[2];
+    if (cz < 0.02) return null;
+    const cx = v[0] * r[0] + v[1] * r[1] + v[2] * r[2];
+    const cy = v[0] * u[0] + v[1] * u[1] + v[2] * u[2];
+    return { x: W / 2 + (F * cx) / cz, y: H / 2 - (F * cy) / cz, s: F / cz };
+  };
+}
+
+function angleBetween(a, b) {
+  const d = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+  return Math.acos(d) / DEG;
+}
+
+function createArena({ root, canvas, hud, progress }) {
+  const ctx = canvas.getContext("2d");
+  const s = {
+    active: false,
+    mode: "fps",
+    k: 1,
+    fov: 103,
+    x: 0,
+    y: 0,
+    profile: null,
+    st: null,
+    lastTs: null,
+    rec: null,
+    onClick: null,
+    target: null,
+    feedback: null,
+    phase: "idle",
+  };
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(innerWidth * dpr);
+    canvas.height = Math.round(innerHeight * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function onMove(e) {
+    if (!s.active || document.pointerLockElement !== canvas) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    for (const ev of evs.length ? evs : [e]) {
+      const dx = ev.movementX;
+      const dy = ev.movementY;
+      if (!dx && !dy) continue;
+      const dt = s.lastTs === null ? 1 : ev.timeStamp - s.lastTs;
+      s.lastTs = ev.timeStamp;
+      const [ox, oy] = step(s.profile, s.st, dx, dy, dt);
+      s.x += ox * s.k;
+      s.y += oy * s.k;
+      if (s.mode === "fps") s.y = Math.max(-85, Math.min(85, s.y));
+      if (s.rec) s.rec.push({ t: ev.timeStamp - s.rec.t0, x: s.x, y: s.y });
+    }
+  }
+
+  function onDown(e) {
+    if (s.active && e.button === 0 && s.onClick) s.onClick(performance.now());
+  }
+
+  function onLockChange() {
+    if (!document.pointerLockElement && s.active) {
+      s.active = false;
+      if (s.onClick) s.onClick(null);
+    }
+  }
+
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("mousedown", onDown);
+  document.addEventListener("pointerlockchange", onLockChange);
+  window.addEventListener("resize", () => s.active && resize());
+
+  function drawFps(W, H) {
+    const proj = camera(s.x, -s.y, W, H, s.fov);
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, COLORS.sky);
+    g.addColorStop(1, COLORS.horizon);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.lineWidth = 1;
+    const line = (pts, strong) => {
+      ctx.strokeStyle = strong ? COLORS.gridStrong : COLORS.grid;
+      ctx.beginPath();
+      let pen = false;
+      for (const p of pts) {
+        const q = proj(p);
+        if (!q) {
+          pen = false;
+          continue;
+        }
+        if (pen) ctx.lineTo(q.x, q.y);
+        else ctx.moveTo(q.x, q.y);
+        pen = true;
+      }
+      ctx.stroke();
+    };
+    for (let yaw = -180; yaw < 180; yaw += 15) {
+      const pts = [];
+      for (let p = -75; p <= 75; p += 3) pts.push(dir(yaw, p));
+      line(pts, false);
+    }
+    for (let p = -75; p <= 75; p += 15) {
+      const pts = [];
+      for (let yaw = -180; yaw <= 180; yaw += 3) pts.push(dir(yaw, p));
+      line(pts, p === 0);
+    }
+    if (s.target) {
+      const q = proj(dir(s.target.x, -s.target.y));
+      if (q) {
+        const r = Math.max(3, q.s * Math.tan(s.target.radius * DEG));
+        drawSphere(q.x, q.y, r);
+      }
+    }
+    drawCrosshair(W / 2, H / 2);
+  }
+
+  function draw2d(W, H) {
+    ctx.fillStyle = COLORS.sky;
+    ctx.fillRect(0, 0, W, H);
+    const cx = W / 2;
+    const cy = H / 2;
+    if (s.phase === "hold") {
+      ctx.strokeStyle = COLORS.gridStrong;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+    if (s.target) drawSphere(cx + s.target.x, cy + s.target.y, s.target.radius);
+    drawCrosshair(cx + s.x, cy + s.y);
+  }
+
+  function drawSphere(x, y, r) {
+    if (s.feedback) {
+      ctx.fillStyle = s.feedback === "hit" ? COLORS.hit : COLORS.miss;
+    } else {
+      const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+      g.addColorStop(0, COLORS.targetHi);
+      g.addColorStop(0.45, COLORS.target);
+      g.addColorStop(1, "#b8401f");
+      ctx.fillStyle = g;
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  function drawCrosshair(x, y) {
+    const seg = (x1, y1, x2, y2) => {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    };
+    const arms = () => {
+      seg(x - 11, y, x - 4, y);
+      seg(x + 4, y, x + 11, y);
+      seg(x, y - 11, x, y - 4);
+      seg(x, y + 4, x, y + 11);
+    };
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 4;
+    arms();
+    ctx.strokeStyle = COLORS.crosshair;
+    ctx.lineWidth = 2;
+    arms();
+    ctx.fillStyle = COLORS.crosshair;
+    ctx.fillRect(x - 1, y - 1, 2, 2);
+  }
+
+  function frame() {
+    if (!s.active) return;
+    const W = innerWidth;
+    const H = innerHeight;
+    if (s.mode === "fps") drawFps(W, H);
+    else draw2d(W, H);
+    requestAnimationFrame(frame);
+  }
+
+  async function enter(settings) {
+    s.mode = settings.mode;
+    s.fov = settings.fov;
+    root.classList.add("on");
+    resize();
+    let raw = true;
+    try {
+      await canvas.requestPointerLock({ unadjustedMovement: true });
+    } catch {
+      raw = false;
+      await canvas.requestPointerLock();
+    }
+    if (document.pointerLockElement !== canvas) throw new Error("pointer lock was refused");
+    root.requestFullscreen?.().catch(() => {});
+    s.active = true;
+    requestAnimationFrame(frame);
+    return { raw };
+  }
+
+  function exit() {
+    s.active = false;
+    s.target = null;
+    s.rec = null;
+    s.phase = "idle";
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    root.classList.remove("on");
+  }
+
+  const aborted = () => !s.active || document.pointerLockElement !== canvas;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function geometry(trial) {
+    if (s.mode === "fps") return fpsTargetFor(trial);
+    return targetFor(trial, innerWidth, innerHeight);
+  }
+
+  function isHit(tgt) {
+    if (s.mode === "fps") return angleBetween(dir(s.x, -s.y), dir(tgt.x, -tgt.y)) <= tgt.radius;
+    return Math.hypot(s.x - tgt.x, s.y - tgt.y) <= tgt.radius;
+  }
+
+  async function flick(trial, profile) {
+    const tgt = geometry(trial);
+    s.profile = profile;
+    s.st = createState();
+    s.lastTs = null;
+    s.x = 0;
+    s.y = 0;
+    s.target = null;
+    s.feedback = null;
+    s.phase = "hold";
+    await sleep(350 + Math.random() * 400);
+    if (aborted()) return null;
+    s.x = 0;
+    s.y = 0;
+    s.phase = "go";
+    s.target = tgt;
+    const t0 = performance.now();
+    s.rec = [{ t: 0, x: 0, y: 0 }];
+    s.rec.t0 = t0;
+    const click = await new Promise((resolve) => {
+      s.onClick = resolve;
+      setTimeout(() => resolve(null), TRIAL_TIMEOUT_MS);
+    });
+    s.onClick = null;
+    const samples = s.rec;
+    s.rec = null;
+    if (aborted()) return null;
+    const tClick = click === null ? null : click - t0;
+    const hit = tClick !== null && isHit(tgt);
+    if (tClick !== null) samples.push({ t: tClick, x: s.x, y: s.y });
+    s.feedback = hit ? "hit" : "miss";
+    await sleep(160);
+    s.target = null;
+    const seg = tClick === null ? { ok: false, reason: "timeout" } : segmentTrial(samples, tgt);
+    return {
+      dir: trial.dir,
+      theta: trial.theta,
+      amp: trial.amp,
+      D: tgt.D,
+      radius: tgt.radius,
+      hit,
+      timeout: tClick === null,
+      timeToHit: tClick,
+      seg: seg.ok ? { ok: true, rho: seg.rho, rhoMirror: seg.rhoMirror, lateral: seg.lateral, onsetMs: seg.onsetMs } : { ok: false, reason: seg.reason },
+      samples,
+    };
+  }
+
+  function setHud(text, frac) {
+    hud.textContent = text;
+    progress.style.transform = `scaleX(${Math.max(0, Math.min(1, frac))})`;
+  }
+
+  async function runFlicks({ plan, profileFor, settings, k, label }) {
+    s.k = k;
+    const info = await enter(settings);
+    const trials = [];
+    try {
+      for (let i = 0; i < plan.length; i++) {
+        setHud(`${label} · ${i + 1} of ${plan.length} · Esc to stop`, i / plan.length);
+        const res = await flick(plan[i], profileFor(plan[i]));
+        if (!res) break;
+        trials.push({ ...res, cond: plan[i].cond, block: plan[i].block });
+      }
+    } finally {
+      exit();
+    }
+    return { trials, raw: info.raw };
+  }
+
+  async function track(profile, seconds) {
+    s.profile = profile;
+    s.st = createState();
+    s.lastTs = null;
+    const A = s.mode === "fps" ? 10 : 0.2 * Math.min(innerWidth, innerHeight);
+    const comps = [0.13, 0.21, 0.34, 0.47].map((f) => ({
+      f,
+      ax: (A * (0.4 + 0.6 * Math.random())) / 2,
+      ay: (A * (0.4 + 0.6 * Math.random())) / 2,
+      px: 2 * Math.PI * Math.random(),
+      py: 2 * Math.PI * Math.random(),
+    }));
+    const pos = (t) => ({
+      x: comps.reduce((a, c) => a + c.ax * Math.sin(2 * Math.PI * c.f * t + c.px), 0),
+      y: comps.reduce((a, c) => a + c.ay * Math.sin(2 * Math.PI * c.f * t + c.py), 0),
+    });
+    const radius = s.mode === "fps" ? 1.2 : 12;
+    const p0 = pos(0);
+    s.x = p0.x;
+    s.y = p0.y;
+    s.feedback = null;
+    s.phase = "track";
+    s.target = { ...p0, radius };
+    const t0 = performance.now();
+    const windows = [];
+    let acc = 0;
+    let n = 0;
+    let w = 2;
+    while (performance.now() - t0 < seconds * 1000) {
+      await new Promise((r) => requestAnimationFrame(r));
+      if (aborted()) return null;
+      const t = (performance.now() - t0) / 1000;
+      const p = pos(t);
+      s.target = { ...p, radius };
+      if (t < 2) continue;
+      const err = s.mode === "fps" ? angleBetween(dir(s.x, -s.y), dir(p.x, -p.y)) : Math.hypot(s.x - p.x, s.y - p.y);
+      acc += err * err;
+      n++;
+      if (t >= w + 1) {
+        windows.push(Math.sqrt(acc / Math.max(1, n)));
+        acc = 0;
+        n = 0;
+        w += 1;
+      }
+    }
+    s.target = null;
+    await sleep(600);
+    return { windows };
+  }
+
+  async function runTracking({ conds, profileFor, settings, k, seconds = 10 }) {
+    s.k = k;
+    await enter(settings);
+    const runs = [];
+    try {
+      for (let i = 0; i < conds.length; i++) {
+        setHud(`Tracking · ${i + 1} of ${conds.length} · keep the crosshair on the target · Esc to stop`, i / conds.length);
+        const run = await track(profileFor(conds[i]), seconds);
+        if (!run) break;
+        runs.push({ cond: conds[i], ...run });
+      }
+    } finally {
+      exit();
+    }
+    return { runs };
+  }
+
+  return { runFlicks, runTracking };
+}
+
+// ---- web/charts.js
+
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+function pct(logGain) {
+  const v = (Math.exp(logGain) - 1) * 100;
+  return `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`;
+}
+
+const SIZE = 380;
+const C = SIZE / 2;
+const R0 = 100;
+const EXAGGERATE = 4;
+const radius = (lg) => R0 * (1 + EXAGGERATE * (Math.exp(lg) - 1));
+
+function curve(fn) {
+  const pts = [];
+  for (let i = 0; i <= 240; i++) {
+    const th = (i * 2 * Math.PI) / 240;
+    const r = Math.max(4, radius(fn(th)));
+    pts.push(`${(C + r * Math.cos(th)).toFixed(1)},${(C + r * Math.sin(th)).toFixed(1)}`);
+  }
+  return pts.join(" ");
+}
+
+// Polar view of gain by movement direction. Screen convention: right = 0 deg, down = 90 deg.
+// points: [{theta, value (log gain), tip}]; labels: {right, down, left, up}.
+function polarChart({ current, proposed, points = [], labels }) {
+  const out = [`<svg viewBox="0 0 ${SIZE} ${SIZE}" role="img" aria-label="Gain by mouse movement direction">`];
+  for (const g of [0.9, 1.1]) out.push(`<circle class="grid" cx="${C}" cy="${C}" r="${radius(Math.log(g)).toFixed(1)}"/>`);
+  out.push(`<circle class="base" cx="${C}" cy="${C}" r="${R0}"/>`);
+  out.push(`<line class="grid" x1="${C - 170}" y1="${C}" x2="${C + 170}" y2="${C}"/>`);
+  out.push(`<line class="grid" x1="${C}" y1="${C - 170}" x2="${C}" y2="${C + 170}"/>`);
+  out.push(`<text class="tick" x="${C + 4}" y="${(C - radius(Math.log(1.1)) - 4).toFixed(1)}">+10%</text>`);
+  out.push(`<text class="tick" x="${C + 4}" y="${C - R0 - 4}">±0</text>`);
+  out.push(`<text class="tick" x="${C + 4}" y="${(C - radius(Math.log(0.9)) - 4).toFixed(1)}">−10%</text>`);
+  out.push(`<text class="axis" x="${SIZE - 6}" y="${C - 6}" text-anchor="end">${esc(labels.right)}</text>`);
+  out.push(`<text class="axis" x="6" y="${C - 6}">${esc(labels.left)}</text>`);
+  out.push(`<text class="axis" x="${C}" y="16" text-anchor="middle">${esc(labels.up)}</text>`);
+  out.push(`<text class="axis" x="${C}" y="${SIZE - 6}" text-anchor="middle">${esc(labels.down)}</text>`);
+  if (current) out.push(`<polyline class="s1" points="${curve((th) => logGainAtAngle(current, th))}"/>`);
+  if (proposed) out.push(`<polyline class="s2" points="${curve((th) => logGainAtAngle(proposed, th))}"/>`);
+  for (const p of points) {
+    const r = Math.max(4, radius(p.value));
+    const x = (C + r * Math.cos(p.theta)).toFixed(1);
+    const y = (C + r * Math.sin(p.theta)).toFixed(1);
+    out.push(`<circle class="pt" cx="${x}" cy="${y}" r="4"/>`);
+    out.push(`<circle class="hit" cx="${x}" cy="${y}" r="12" tabindex="0" data-tip="${esc(p.tip)}"/>`);
+  }
+  out.push("</svg>");
+  return out.join("");
+}
+
+// One interval on a symmetric axis around zero, with the side that means "better" labeled.
+function intervalChart({ diff, lo, hi, unit, digits = 0, betterLabel, worseLabel }) {
+  const W = 560;
+  const H = 76;
+  const pad = 24;
+  const span = Math.max(Math.abs(lo), Math.abs(hi), Math.abs(diff), 1e-9) * 1.25;
+  const X = (v) => pad + ((v + span) / (2 * span)) * (W - 2 * pad);
+  const f = (v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(digits)} ${unit}`;
+  const tip = `Difference ${f(diff)}, 95% interval ${f(lo)} to ${f(hi)}`;
+  return [
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(tip)}">`,
+    `<line class="grid" x1="${pad}" y1="34" x2="${W - pad}" y2="34"/>`,
+    `<line class="base" x1="${X(0)}" y1="14" x2="${X(0)}" y2="54"/>`,
+    `<text class="tick" x="${X(0)}" y="70" text-anchor="middle">0</text>`,
+    `<text class="axis" x="${pad}" y="10">${esc(betterLabel)}</text>`,
+    `<text class="axis" x="${W - pad}" y="10" text-anchor="end">${esc(worseLabel)}</text>`,
+    `<line class="ci" x1="${X(lo).toFixed(1)}" y1="34" x2="${X(hi).toFixed(1)}" y2="34"/>`,
+    `<circle class="est" cx="${X(diff).toFixed(1)}" cy="34" r="6"/>`,
+    `<text class="tick" x="${X(lo).toFixed(1)}" y="70" text-anchor="middle">${esc(f(lo))}</text>`,
+    `<text class="tick" x="${X(hi).toFixed(1)}" y="70" text-anchor="middle">${esc(f(hi))}</text>`,
+    `<rect class="hitbar" x="${(X(lo) - 8).toFixed(1)}" y="20" width="${(X(hi) - X(lo) + 16).toFixed(1)}" height="28" tabindex="0" data-tip="${esc(tip)}"/>`,
+    "</svg>",
+  ].join("");
+}
+
+function meter(value, goal) {
+  const frac = Math.max(0, Math.min(1, value / goal));
+  return `<div class="meter" role="meter" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${Math.round(value)}"><span style="transform:scaleX(${frac.toFixed(3)})"></span></div>`;
+}
+
+// ---- web/games.js
+// Degrees of camera rotation per mouse count at in-game sensitivity 1. These are the widely
+// cited engine constants; check them against your game if your cm/360 looks off.
+const GAMES = [
+  { id: "valorant", name: "Valorant", yaw: 0.07, fov: 103, sens: 0.35 },
+  { id: "cs2", name: "Counter-Strike 2", yaw: 0.022, fov: 106.26, sens: 1.2 },
+  { id: "apex", name: "Apex Legends", yaw: 0.022, fov: 110, sens: 1.5 },
+  { id: "ow2", name: "Overwatch 2", yaw: 0.0066, fov: 103, sens: 5 },
+  { id: "cod", name: "Call of Duty (MW / Warzone)", yaw: 0.0066, fov: 100, sens: 5 },
+  { id: "custom", name: "Other game (enter cm/360)", yaw: null, fov: 100, sens: null },
+];
+
+function gameById(id) {
+  return GAMES.find((g) => g.id === id) ?? GAMES[0];
+}
+
+// Camera degrees per mouse count for the current settings.
+function degPerCount(settings) {
+  const g = gameById(settings.game);
+  if (g.yaw === null) return 360 / ((settings.cm360 / 2.54) * settings.dpi);
+  return g.yaw * settings.sens;
+}
+
+function cm360(settings) {
+  return (360 / (degPerCount(settings) * settings.dpi)) * 2.54;
 }
 
 // ---- web/simuser.js
@@ -937,53 +1662,46 @@ function runSimTrial(user, target, { sens, radius, profile, maxSubmovements = 6 
 
 
 
+
+
 const SIM = new URLSearchParams(location.search).has("sim");
-const STORE_KEY = "dirgain.v1";
+const STORE_KEY = "dirgain.v2";
+const THEME_KEY = "dirgain.theme";
 const AB_ORDER = ["A", "B", "B", "A", "B", "A", "A", "B"];
-const MIN_AB_TRIALS = 280;
-const TRIAL_TIMEOUT_MS = 3000;
+const CAL_GOAL = 400;
+const AB_GOAL = 280;
 const $ = (id) => document.getElementById(id);
 
 const app = {
-  settings: { dpi: 800, sens: 1, anchor: "horizontal" },
+  settings: { game: "valorant", sens: 0.35, cm360: 34, dpi: 800, fov: 103, mode: "fps", anchor: "horizontal", allowOdd: true, sens2d: 1 },
   profile: defaultProfile(),
   proposal: null,
+  lastResult: null,
   sessions: [],
+  step: "setup",
   simUser: null,
 };
 
-function profileKey(p) {
-  return PARAM_KEYS.filter((k) => k !== "clamp").map((k) => Number(p[k]).toFixed(6)).join(",");
-}
-
-function lambdaForDpi(dpi) {
-  return Math.max(2, Math.round((dpi * 0.25) / 25.4));
-}
-
-function stripRaw(session) {
-  return { ...session, trials: session.trials?.map(({ samples, ...t }) => t) };
-}
+// ---------- persistence ----------
 
 function save() {
   try {
-    localStorage.setItem(
-      STORE_KEY,
-      JSON.stringify({ settings: app.settings, profile: app.profile, sessions: app.sessions.map(stripRaw) }),
-    );
-    $("storeNote").textContent = `${app.sessions.length} session(s) saved in this browser (summaries only; download raw data to keep traces).`;
+    const sessions = app.sessions.map((s) => ({ ...s, trials: s.trials?.map(({ samples, ...t }) => t) }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ settings: app.settings, profile: app.profile, sessions, step: app.step }));
+    $("storeNote").textContent = `${app.sessions.length} session(s) saved in this browser. Traces are kept only until you close the tab; download raw data to keep them.`;
   } catch {
-    $("storeNote").textContent = "Browser storage unavailable: download your data before closing the tab.";
+    $("storeNote").textContent = "This browser blocked local storage. Download your data before closing the tab.";
   }
 }
 
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    if (s) {
-      Object.assign(app.settings, s.settings || {});
-      app.profile = { ...defaultProfile(), ...(s.profile || {}) };
-      app.sessions = s.sessions || [];
-    }
+    if (!s) return;
+    Object.assign(app.settings, s.settings || {});
+    app.profile = { ...defaultProfile(), ...(s.profile || {}) };
+    app.sessions = s.sessions || [];
+    if (s.step) app.step = s.step;
   } catch {
     /* storage blocked or corrupt: start fresh */
   }
@@ -997,361 +1715,397 @@ function download(name, text, type = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-// ---------- analysis and rendering ----------
+// ---------- derived state ----------
+
+const profileKey = (p) => PARAM_KEYS.filter((k) => k !== "clamp").map((k) => Number(p[k]).toFixed(6)).join(",");
+const unitsPerCount = () => (app.settings.mode === "fps" ? degPerCount(app.settings) : app.settings.sens2d);
+const calibKey = () => `${profileKey(app.profile)}|${app.settings.mode}|${unitsPerCount().toPrecision(6)}`;
+const lambdaForDpi = (dpi) => Math.max(2, Math.round((dpi * 0.25) / 25.4));
+const mean = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN);
+
+function sessionsOf(kind) {
+  const key = calibKey();
+  return app.sessions.filter((s) => s.kind === kind && s.calibKey === key && !!s.sim === SIM);
+}
 
 function calibTrials() {
-  const key = profileKey(app.profile);
-  return app.sessions
-    .filter((s) => s.kind === "calibrate" && s.profileKey === key && !!s.sim === SIM)
-    .flatMap((s) => s.trials);
+  return sessionsOf("calibrate").flatMap((s) => s.trials.map((t) => ({ ...t, group: `${s.id}:${t.amp}` })));
 }
+
+function otherCalibCount() {
+  const key = calibKey();
+  return app.sessions.filter((s) => s.kind === "calibrate" && s.calibKey !== key && !!s.sim === SIM).reduce((a, s) => a + s.trials.length, 0);
+}
+
+function directionLabels() {
+  return app.settings.mode === "fps"
+    ? { right: "right", left: "left", up: "push (aim up)", down: "pull (aim down)" }
+    : { right: "right", left: "left", up: "up", down: "down" };
+}
+
+function controlProfile() {
+  return { ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms };
+}
+
+// ---------- step navigation ----------
+
+const STEPS = ["setup", "calibrate", "validate", "install", "data"];
+
+function go(step) {
+  app.step = STEPS.includes(step) ? step : "setup";
+  for (const s of STEPS) {
+    $(`panel-${s}`).classList.toggle("on", s === app.step);
+    const b = document.querySelector(`nav.steps [data-step="${s}"]`);
+    if (s === app.step) b.setAttribute("aria-current", "step");
+    else b.removeAttribute("aria-current");
+  }
+  renderAll();
+  save();
+  window.scrollTo(0, 0);
+}
+
+function renderRail() {
+  const st = app.settings;
+  const g = gameById(st.game);
+  $("st-setup").textContent = `${g.id === "custom" ? "Custom" : g.name} · ${cm360(st).toFixed(1)} cm/360`;
+  const ok = calibTrials().filter((t) => t.seg?.ok).length;
+  const flat = Math.abs(logGainAtAngle(app.profile, 0)) < 1e-9 && Math.abs(logGainAtAngle(app.profile, Math.PI / 2)) < 1e-9 && Math.abs(logGainAtAngle(app.profile, Math.PI / 4)) < 1e-9;
+  $("st-calibrate").textContent = `${ok} usable flicks · ${flat ? "flat profile" : "profile on"}`;
+  const ab = sessionsOf("ab").flatMap((s) => s.trials);
+  const n = Math.min(ab.filter((t) => t.cond === "A").length, ab.filter((t) => t.cond === "B").length);
+  $("st-validate").textContent = n ? `${n} of ${AB_GOAL} per condition` : "not started";
+  $("st-install").textContent = "Raw Accel or full profile";
+  $("st-data").textContent = `${app.sessions.length} session(s)`;
+  document.querySelectorAll("nav.steps button").forEach((b) => {
+    const s = b.dataset.step;
+    b.classList.toggle("done", (s === "setup" && app.step !== "setup") || (s === "calibrate" && !flat) || (s === "validate" && n >= AB_GOAL));
+  });
+}
+
+// ---------- setup ----------
+
+function renderSetup() {
+  const st = app.settings;
+  const g = gameById(st.game);
+  $("game").value = st.game;
+  $("sens").value = st.sens;
+  $("cm360").value = st.cm360;
+  $("dpi").value = st.dpi;
+  $("fov").value = st.fov;
+  $("anchor").value = st.anchor;
+  $("allowOdd").checked = !!st.allowOdd;
+  $("sens2d").value = st.sens2d;
+  $("sensField").hidden = g.yaw === null;
+  $("cmField").hidden = g.yaw !== null;
+  document.querySelectorAll('input[name="mode"]').forEach((r) => (r.checked = r.value === st.mode));
+  const k = degPerCount(st);
+  $("sensReadout").innerHTML = `
+    <div><b>${cm360(st).toFixed(1)}</b><span>cm per 360° turn</span></div>
+    <div><b>${(k * st.dpi).toFixed(1)}</b><span>degrees per inch of mouse travel</span></div>
+    <div><b>${k.toFixed(4)}</b><span>degrees per mouse count</span></div>`;
+}
+
+function bindSetup() {
+  $("game").innerHTML = GAMES.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join("");
+  $("game").addEventListener("change", () => {
+    const g = gameById($("game").value);
+    app.settings.game = g.id;
+    if (g.sens !== null) app.settings.sens = g.sens;
+    app.settings.fov = g.fov;
+    save();
+    renderAll();
+  });
+  const num = (id, key, min, max = Infinity) =>
+    $(id).addEventListener("change", () => {
+      const v = Number($(id).value);
+      if (Number.isFinite(v) && v >= min && v <= max) app.settings[key] = v;
+      save();
+      renderAll();
+    });
+  num("sens", "sens", 0.0001);
+  num("cm360", "cm360", 1, 1000);
+  num("dpi", "dpi", 100, 32000);
+  num("fov", "fov", 60, 130);
+  num("sens2d", "sens2d", 0.05, 10);
+  $("anchor").addEventListener("change", () => {
+    app.settings.anchor = $("anchor").value;
+    save();
+  });
+  $("allowOdd").addEventListener("change", () => {
+    app.settings.allowOdd = $("allowOdd").checked;
+    save();
+  });
+  document.querySelectorAll('input[name="mode"]').forEach((r) =>
+    r.addEventListener("change", () => {
+      app.settings.mode = r.value;
+      save();
+      renderAll();
+    }),
+  );
+}
+
+// ---------- calibrate ----------
 
 function dirPoints(trials) {
   const ok = trials.filter((t) => t.seg?.ok);
-  if (ok.length < 24) return [];
-  const mean = ok.reduce((a, t) => a + Math.log(t.seg.rho), 0) / ok.length;
+  if (ok.length < 48) return [];
+  const all = mean(ok.map((t) => Math.log(t.seg.rho)));
   const shift = app.proposal ? app.proposal.profile.a0 - app.profile.a0 : 0;
-  const half = DIRECTIONS / 2;
   const pts = [];
-  for (let d = 0; d < half; d++) {
-    const sel = ok.filter((t) => t.dir % half === d);
-    if (sel.length < 3) continue;
-    const m = sel.reduce((a, t) => a + Math.log(t.seg.rho), 0) / sel.length;
+  for (let d = 0; d < DIRECTIONS; d++) {
+    const sel = ok.filter((t) => t.dir === d);
+    if (sel.length < 2) continue;
+    const m = mean(sel.map((t) => Math.log(t.seg.rho))) - all;
     const theta = (2 * Math.PI * d) / DIRECTIONS;
-    pts.push({ theta, logRel: -(m - mean) + logGainAtAngle(app.profile, theta) + shift });
+    const value = -m + logGainAtAngle(app.profile, theta) + shift;
+    const deg = Math.round((theta * 180) / Math.PI);
+    pts.push({ theta, value, deg, n: sel.length, bias: m, tip: `${deg}°: flicks ${m >= 0 ? "overshoot" : "undershoot"} by ${pct(Math.abs(m)).slice(1)} vs your average (${sel.length} flicks). Implied gain ${pct(value)}.` });
   }
   return pts;
 }
 
-function fmtPct(logGain) {
-  const v = (Math.exp(logGain) - 1) * 100;
-  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
-}
-
-function renderProfile() {
+function renderCalibrate() {
   const trials = calibTrials();
-  $("chart").innerHTML = polarChart({
-    current: app.profile,
-    proposed: app.proposal?.profile,
-    dirPoints: dirPoints(trials),
-  });
-  const rows = [0, 45, 90, 135].map((deg) => {
+  const ok = trials.filter((t) => t.seg?.ok).length;
+  $("calMeter").innerHTML = meter(ok, CAL_GOAL);
+  $("calNum").textContent = `${ok} / ${CAL_GOAL} usable flicks`;
+  const other = otherCalibCount();
+  $("calHint").textContent = other
+    ? `${other} flicks from other settings or an earlier profile are kept but not mixed in.`
+    : "About six blocks give a reliable answer. Breaks between blocks are fine.";
+  const pts = dirPoints(trials);
+  $("chart").innerHTML = polarChart({ current: app.profile, proposed: app.proposal?.profile, points: pts, labels: directionLabels() });
+  const rows = [0, 45, 90, 135, 180, 225, 270, 315].map((deg) => {
     const th = (deg * Math.PI) / 180;
-    const cur = fmtPct(logGainAtAngle(app.profile, th));
-    const prop = app.proposal ? fmtPct(logGainAtAngle(app.proposal.profile, th)) : "–";
-    return `<tr><td>${deg}° / ${deg + 180}°</td><td>${cur}</td><td>${prop}</td></tr>`;
+    const p = pts.find((q) => q.deg === deg);
+    return `<tr><td>${deg}°</td><td>${pct(logGainAtAngle(app.profile, th))}</td><td>${app.proposal ? pct(logGainAtAngle(app.proposal.profile, th)) : "·"}</td><td>${p ? pct(p.value) : "·"}</td></tr>`;
   });
-  $("profileTable").innerHTML =
-    `<table><tr><th>Direction (0° = right, 90° = down)</th><th>Current</th><th>Proposed</th></tr>${rows.join("")}</table>` +
-    `<p class="muted">Solid: current profile. Dashed: proposal. Dots: gain implied by your measured bias. Radial scale exaggerated 4×.</p>`;
+  $("chartTable").innerHTML = `<table><tr><th>Direction</th><th>Current</th><th>Proposed</th><th>Implied</th></tr>${rows.join("")}</table>`;
   $("btnAccept").disabled = !app.proposal;
 }
 
-function renderCounts() {
-  const trials = calibTrials();
-  const ok = trials.filter((t) => t.seg?.ok).length;
-  $("calibCount").textContent = `${trials.length} trials collected with the current profile (${ok} usable). The analysis needs about 400 for a reliable result.`;
-  const cps = 1 / app.settings.sens;
-  const cm = (window.innerWidth * cps * 2.54) / app.settings.dpi;
-  $("sensNote").textContent = `Crossing this screen's width takes about ${cm.toFixed(1)} cm of mouse travel. Pick a speed that feels like your in-game aim.`;
+function verdictHtml(kind, title, text) {
+  const icon = { good: "✓", bad: "✕", neutral: "○" }[kind];
+  return `<div class="verdict ${kind}"><span class="icon" aria-hidden="true">${icon}</span><div><h3>${esc(title)}</h3><p>${text}</p></div></div>`;
 }
 
 function runAnalysis() {
   const trials = calibTrials();
-  const usable = trials.filter((t) => t.seg?.ok).map((t) => ({ theta: t.theta, amp: t.amp, rho: t.seg.rho }));
-  const res = analyze(usable);
-  const el = $("analysis");
+  const usable = trials.filter((t) => t.seg?.ok).map((t) => ({ theta: t.theta, amp: t.amp, group: t.group, rho: t.seg.rho }));
   app.proposal = null;
+  const res = analyze(usable, { odd: !!app.settings.allowOdd });
+  app.lastResult = res;
   if (!res.ok) {
-    el.innerHTML = `<p class="warn">${res.reason}.</p>`;
-    renderProfile();
+    $("analysis").innerHTML = verdictHtml("neutral", "Not enough flicks yet", `${esc(res.reason)}. Play a block first.`);
+    $("analysisFacts").innerHTML = "";
+    renderCalibrate();
     return;
   }
-  const rejected = trials.length - usable.length;
-  const spread = (res.residualRms * 100).toFixed(1);
-  let html = `<table>
-    <tr><td>Usable trials</td><td>${res.n} (${rejected} rejected)</td></tr>
-    <tr><td>Harmonics (auto-selected)</td><td>${res.K}</td></tr>
-    <tr><td>Directional bias (RMS)</td><td>${spread}%</td></tr>
-    <tr><td>Gate: joint Wald test</td><td>p = ${res.p.toExponential(2)} (needs &lt; 0.01)</td></tr>
-  </table>`;
+  const fmtP = (p) => (p < 0.001 ? "< 0.001" : p.toFixed(3));
+  const gateRow = (label, g) =>
+    g ? `<tr><td>${label}</td><td class="num">p ${fmtP(g.p)}</td><td>${g.pass ? '<span class="ok">✓ real</span>' : '<span class="muted">not shown</span>'}</td></tr>` : "";
+  const cons = res.consistency;
+  $("analysisFacts").innerHTML = `
+    <table class="facts">
+      <tr><th>Check</th><th>Evidence</th><th>Result</th></tr>
+      ${gateRow("Direction shape (diagonals, axes)", res.even)}
+      ${gateRow("Left vs right, push vs pull", res.odd)}
+      <tr><td>Bias size across directions</td><td class="num">${(res.residualRms * 100).toFixed(1)}% RMS</td><td></td></tr>
+      ${cons ? `<tr><td>Same pattern at all distances</td><td class="num">p ${fmtP(cons.p)}</td><td>${cons.consistent ? '<span class="ok">✓ yes</span>' : '<span class="no">differs by distance</span>'}</td></tr>` : ""}
+      <tr><td>Flicks analyzed</td><td class="num">${res.n} of ${trials.length}</td><td class="muted small">${trials.length - res.n} rejected</td></tr>
+    </table>
+    <p class="hint">A check passes only when shuffling your directions almost never produces a pattern this strong (p below ${app.settings.allowOdd ? "0.005" : "0.01"}). Each round moves the profile only halfway toward the dots, so noise cannot push it too far.</p>`;
   if (res.pass) {
-    app.proposal = { profile: updateProfile(app.profile, res, { anchor: app.settings.anchor }).profile, result: res };
-    app.proposal.profile.lambda = lambdaForDpi(app.settings.dpi);
-    html += `<p class="good">A directional bias is statistically reliable. A proposal is shown on the profile chart. Accept it, then run another calibration block to measure what is left (and an A/B session to see whether it helps).</p>`;
+    const next = updateProfile(app.profile, res, { anchor: app.settings.anchor, allowOdd: !!app.settings.allowOdd }).profile;
+    next.lambda = lambdaForDpi(app.settings.dpi);
+    app.proposal = { profile: next, result: res };
+    $("analysis").innerHTML = verdictHtml(
+      "good",
+      "Your aim has a measurable directional bias",
+      "The orange curve is the proposed correction. Use it, then play another block: the next analysis measures what is left. Stop when no check passes.",
+    );
   } else {
-    html += `<p>No reliable directional bias at this sample size. Keep the current profile. Collect more blocks, or stop here: a flat profile is the right answer if your aim has no consistent directional bias.</p>`;
+    $("analysis").innerHTML = verdictHtml(
+      "neutral",
+      "No reliable directional bias at this sample size",
+      "Keep the current profile. Play more blocks, or stop here: if your aim has no consistent directional bias, a flat profile is the right answer.",
+    );
   }
-  el.innerHTML = html;
-  renderProfile();
+  renderCalibrate();
+  renderRail();
 }
 
-function renderAB() {
-  const key = profileKey(app.profile);
-  const ab = app.sessions.filter((s) => s.kind === "ab" && s.profileKey === key && !!s.sim === SIM);
-  const tr = app.sessions.filter((s) => s.kind === "tracking" && s.profileKey === key && !!s.sim === SIM);
-  const el = $("abResult");
-  if (!ab.length && !tr.length) {
-    el.innerHTML = `<p class="muted">No A/B data for the current profile yet.</p>`;
+// ---------- validate ----------
+
+function renderValidate() {
+  const ab = sessionsOf("ab");
+  const tr = sessionsOf("tracking");
+  const trials = ab.flatMap((s) => s.trials.map((t) => ({ ...t, blockId: `${s.id}:${t.block}` })));
+  const by = (c) => trials.filter((t) => t.cond === c);
+  const n = Math.min(by("A").length, by("B").length);
+  $("abMeter").innerHTML = meter(n, AB_GOAL);
+  $("abNum").textContent = `${n} / ${AB_GOAL} flicks per condition`;
+  const flat = profileKey(app.profile) === profileKey({ ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms });
+  $("btnAB").disabled = flat;
+  $("btnTrack").disabled = flat || SIM;
+  if (flat) {
+    $("abResult").innerHTML = verdictHtml("neutral", "Nothing to test yet", "Your profile is flat. Calibrate and accept a profile first.");
     return;
   }
-  const trials = ab.flatMap((s) => s.trials.map((t) => ({ ...t, blockId: `${s.id}:${t.block}` })));
-  const byCond = (c) => trials.filter((t) => t.cond === c);
-  const tth = (c) => byCond(c).filter((t) => t.hit).map((t) => t.timeToHit);
-  const hitRate = (c) => byCond(c).filter((t) => t.hit).length / Math.max(1, byCond(c).length);
-  const mean = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN);
-  // Resample whole mini-blocks: trials inside a block share warm-up, fatigue and adaptation state.
-  const blockMeans = (c) => {
-    const groups = new Map();
-    for (const t of byCond(c)) {
-      if (!t.hit) continue;
-      if (!groups.has(t.blockId)) groups.set(t.blockId, []);
-      groups.get(t.blockId).push(t.timeToHit);
-    }
-    return [...groups.values()].map(mean);
-  };
+  if (!trials.length && !tr.length) {
+    $("abResult").innerHTML = verdictHtml("neutral", "No A/B data for this profile yet", "One session is 192 targets, about five minutes.");
+    return;
+  }
   let html = "";
   if (trials.length) {
+    const blockMeans = (c) => {
+      const g = new Map();
+      for (const t of by(c)) {
+        if (!t.hit) continue;
+        if (!g.has(t.blockId)) g.set(t.blockId, []);
+        g.get(t.blockId).push(t.timeToHit);
+      }
+      return [...g.values()].map(mean);
+    };
     const d = bootstrapDiff(blockMeans("A"), blockMeans("B"));
-    const enough = Math.min(byCond("A").length, byCond("B").length) >= MIN_AB_TRIALS;
-    let verdict = "Not enough blocks yet.";
+    const tth = (c) => mean(by(c).filter((t) => t.hit).map((t) => t.timeToHit));
+    const hr = (c) => by(c).filter((t) => t.hit).length / Math.max(1, by(c).length);
+    const enough = n >= AB_GOAL;
     if (d) {
-      if (d.hi < 0) verdict = `<span class="good">The profile made you faster: the whole 95% interval is below zero.</span>`;
-      else if (d.lo > 0) verdict = `<span class="bad">The profile made you slower. Reset to flat.</span>`;
-      else verdict = "No detectable difference (the interval includes zero).";
-      if (!enough) verdict = `<b>Preliminary</b> (under ${MIN_AB_TRIALS} trials per condition, keep collecting): ${verdict}`;
+      let v;
+      if (d.hi < 0) v = ["good", enough ? "The profile makes you faster" : "Leaning faster (preliminary)", `With the profile you hit targets ${Math.abs(d.diff).toFixed(0)} ms sooner on average, and the whole 95% interval is below zero.`];
+      else if (d.lo > 0) v = ["bad", enough ? "The profile makes you slower" : "Leaning slower (preliminary)", "Reset to flat, or recalibrate. A profile that slows you down should not be used."];
+      else v = ["neutral", "No detectable difference yet", "The interval still includes zero."];
+      if (!enough) v[2] += ` Keep going until ${AB_GOAL} flicks per condition before deciding.`;
+      html += verdictHtml(...v);
+      html += `<figure class="chart" style="max-width:640px"><figcaption>Time to hit, with profile minus without (block means, 95% interval)</figcaption>${intervalChart({ diff: d.diff, lo: d.lo, hi: d.hi, unit: "ms", betterLabel: "profile faster", worseLabel: "profile slower" })}</figure>`;
     }
-    html += `<table>
-      <tr><th></th><th>Without profile</th><th>With profile</th></tr>
-      <tr><td>Trials</td><td>${byCond("A").length}</td><td>${byCond("B").length}</td></tr>
-      <tr><td>Hit rate</td><td>${(100 * hitRate("A")).toFixed(1)}%</td><td>${(100 * hitRate("B")).toFixed(1)}%</td></tr>
-      <tr><td>Mean time to hit</td><td>${mean(tth("A")).toFixed(0)} ms</td><td>${mean(tth("B")).toFixed(0)} ms</td></tr>
-    </table>`;
-    if (d) html += `<p>Difference (with − without): <b>${d.diff.toFixed(0)} ms</b>, 95% CI ${d.lo.toFixed(0)} to ${d.hi.toFixed(0)} ms (block bootstrap). ${verdict}</p>`;
+    html += `<table class="facts"><tr><th></th><th>Without</th><th>With profile</th></tr>
+      <tr><td>Flicks</td><td class="num">${by("A").length}</td><td class="num">${by("B").length}</td></tr>
+      <tr><td>Hit rate</td><td class="num">${(100 * hr("A")).toFixed(1)}%</td><td class="num">${(100 * hr("B")).toFixed(1)}%</td></tr>
+      <tr><td>Mean time to hit</td><td class="num">${tth("A").toFixed(0)} ms</td><td class="num">${tth("B").toFixed(0)} ms</td></tr></table>`;
   }
   if (tr.length) {
     const win = (c) => tr.flatMap((s) => s.runs.filter((r) => r.cond === c).flatMap((r) => r.windows));
     const d = bootstrapDiff(win("A"), win("B"));
+    const unit = app.settings.mode === "fps" ? "°" : "px";
     if (d) {
-      const worse = d.lo > 0;
-      html += `<p>Tracking guard: RMS error difference ${d.diff.toFixed(1)} px (95% CI ${d.lo.toFixed(1)} to ${d.hi.toFixed(1)}). ${
-        worse ? '<span class="bad">The profile hurts tracking.</span>' : "No tracking regression detected."
-      }</p>`;
+      html += `<h2>Tracking check</h2>`;
+      html += d.lo > 0
+        ? verdictHtml("bad", "The profile hurts tracking", "Your tracking error is higher with the profile. Consider resetting.")
+        : verdictHtml("good", "No tracking regression detected", "Following a moving target is not worse with the profile.");
+      html += `<figure class="chart" style="max-width:640px"><figcaption>Tracking error, with profile minus without (95% interval)</figcaption>${intervalChart({ diff: d.diff, lo: d.lo, hi: d.hi, unit, digits: 2, betterLabel: "profile more accurate", worseLabel: "profile less accurate" })}</figure>`;
     }
   }
-  el.innerHTML = html;
+  $("abResult").innerHTML = html;
+}
+
+// ---------- install ----------
+
+function renderInstall() {
+  const ra = rawAccelFit(app.profile);
+  const dpi = app.settings.dpi;
+  const json = [
+    `"Output DPI": ${(1000 * ra.sens).toFixed(1)},`,
+    `"Y/X output DPI ratio (vertical sens multiplier)": ${ra.yx.toFixed(4)},`,
+    `"L/R output DPI ratio (left sens multiplier)": ${ra.lr.toFixed(4)},`,
+    `"U/D output DPI ratio (up sens multiplier)": ${ra.ud.toFixed(4)},`,
+  ].join("\n");
+  const flat = ra.captured === 1 && Math.abs(ra.yx - 1) < 1e-9;
+  $("installBody").innerHTML = `
+    ${flat ? '<div class="callout"><b>Your profile is flat.</b> Calibrate and accept a profile first; until then both options do nothing.</div>' : ""}
+    <div class="paths">
+      <section>
+        <h3>Raw Accel</h3>
+        <p class="tagline">Signed driver many players already use. The safer choice for games with anti-cheat.</p>
+        <table class="facts">
+          <tr><th>Raw Accel setting</th><th>Value</th></tr>
+          <tr><td>Output DPI <span class="muted small">(device DPI not set in Raw Accel)</span></td><td class="num">${(1000 * ra.sens).toFixed(1)}</td></tr>
+          <tr><td>Output DPI <span class="muted small">(device DPI set to ${dpi})</span></td><td class="num">${(dpi * ra.sens).toFixed(1)}</td></tr>
+          <tr><td>Y/X ratio (vertical)</td><td class="num">${ra.yx.toFixed(4)}</td></tr>
+          <tr><td>L/R ratio (moving left)</td><td class="num">${ra.lr.toFixed(4)}</td></tr>
+          <tr><td>U/D ratio (moving up / pushing)</td><td class="num">${ra.ud.toFixed(4)}</td></tr>
+        </table>
+        <p class="small">Raw Accel can express <b>${(100 * ra.captured).toFixed(0)}%</b> of your profile's direction pattern (remaining error ${ra.rmsErrorPct.toFixed(1)}%, aim direction shifts up to ${ra.maxDirectionErrorDeg.toFixed(1)}°). It has no setting for diagonals.</p>
+        <ol>
+          <li>Install Raw Accel from its official GitHub releases and reboot.</li>
+          <li>In <span class="mono">settings.json</span>, set these four fields in your profile, then run <span class="mono">writer.exe settings.json</span> (or set them in the GUI where available).</li>
+        </ol>
+        <pre class="code" id="raJson">${esc(json)}</pre>
+        <div class="actions"><button class="btn" type="button" id="btnCopyRa">Copy these lines</button></div>
+      </section>
+      <section>
+        <h3>Full profile: DirGain for Windows</h3>
+        <p class="tagline">Applies every part of your profile, diagonals included, through the Interception driver.</p>
+        <ol>
+          <li>Install the Interception driver: from its GitHub release, run <span class="mono">install-interception.exe /install</span> as administrator, then reboot.</li>
+          <li>Put <span class="mono">dirgain.exe</span> (from <span class="mono">dirgain/dist/windows</span> in the repository) and your <span class="mono">profile.conf</span> in one folder.</li>
+          <li>Run <span class="mono">dirgain.exe profile.conf</span>. <span class="mono">Ctrl+Alt+F8</span> turns it on and off; saving a new profile.conf reloads it.</li>
+        </ol>
+        <div class="actions"><button class="btn primary" type="button" id="btnConf">Download profile.conf</button><button class="btn quiet" type="button" id="btnJson">profile.json</button></div>
+        <div class="callout"><b>Anti-cheat warning.</b> Kernel input filters like Interception are blocked or flagged by some anti-cheat systems. Check your game's rules first; when in doubt, use the Raw Accel route.</div>
+      </section>
+    </div>`;
+  $("btnCopyRa").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(json);
+      $("btnCopyRa").textContent = "Copied";
+    } catch {
+      const r = document.createRange();
+      r.selectNodeContents($("raJson"));
+      getSelection().removeAllRanges();
+      getSelection().addRange(r);
+      $("btnCopyRa").textContent = "Selected, press Ctrl+C";
+    }
+  });
+  $("btnConf").addEventListener("click", () => download("profile.conf", `# DirGain profile (device coordinates, y down)\n${toConf(app.profile)}`));
+  $("btnJson").addEventListener("click", () =>
+    download("profile.json", JSON.stringify({ format: "dirgain-profile", version: 2, profile: app.profile, settings: app.settings, created: new Date().toISOString() }, null, 2), "application/json"),
+  );
+}
+
+// ---------- data ----------
+
+function renderData() {
+  if (!app.sessions.length) {
+    $("dataBody").innerHTML = `<p class="muted">No sessions yet.</p>`;
+    return;
+  }
+  const rows = app.sessions
+    .slice(-12)
+    .reverse()
+    .map((s) => {
+      const n = s.trials?.length ?? 0;
+      const runs = s.runs?.length ?? 0;
+      const when = new Date(Number(s.id)).toLocaleString();
+      return `<tr><td>${esc(when)}</td><td>${esc(s.kind)}${s.sim ? " (sim)" : ""}</td><td>${esc(s.settings?.mode ?? "")}</td><td class="num">${s.kind === "tracking" ? `${runs} runs` : `${n} flicks`}</td></tr>`;
+    });
+  $("dataBody").innerHTML = `<table class="facts"><tr><th>When</th><th>Kind</th><th>Mode</th><th>Size</th></tr>${rows.join("")}</table>${app.sessions.length > 12 ? `<p class="hint">Showing the latest 12 of ${app.sessions.length}.</p>` : ""}`;
 }
 
 function renderAll() {
-  $("dpi").value = app.settings.dpi;
-  $("sens").value = app.settings.sens;
-  $("anchor").value = app.settings.anchor;
-  renderCounts();
-  renderProfile();
-  renderAB();
+  renderRail();
+  if (app.step === "setup") renderSetup();
+  if (app.step === "calibrate") renderCalibrate();
+  if (app.step === "validate") renderValidate();
+  if (app.step === "install") renderInstall();
+  if (app.step === "data") renderData();
 }
 
-// ---------- task runner (real mouse) ----------
+// ---------- running tasks ----------
 
-const task = {
-  canvas: null,
-  ctx: null,
-  active: false,
-  x: 0,
-  y: 0,
-  profile: null,
-  st: null,
-  lastTs: null,
-  rec: null,
-  onClick: null,
-  target: null,
-  phase: "idle",
-  feedback: null,
-  path: null,
-};
-
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  task.canvas.width = Math.round(innerWidth * dpr);
-  task.canvas.height = Math.round(innerHeight * dpr);
-  task.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-
-function onPointerMove(e) {
-  if (!task.active || document.pointerLockElement !== task.canvas) return;
-  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-  for (const ev of evs.length ? evs : [e]) {
-    const dx = ev.movementX;
-    const dy = ev.movementY;
-    if (!dx && !dy) continue;
-    const dt = task.lastTs === null ? 1 : ev.timeStamp - task.lastTs;
-    task.lastTs = ev.timeStamp;
-    const [ox, oy] = step(task.profile, task.st, dx, dy, dt);
-    task.x += ox * app.settings.sens;
-    task.y += oy * app.settings.sens;
-    if (task.rec) task.rec.push({ t: ev.timeStamp - task.rec.t0, x: task.x, y: task.y });
-  }
-}
-
-function draw() {
-  if (!task.active) return;
-  const ctx = task.ctx;
-  const W = innerWidth;
-  const H = innerHeight;
-  const cx = W / 2;
-  const cy = H / 2;
-  const css = getComputedStyle(document.documentElement);
-  ctx.fillStyle = css.getPropertyValue("--task-bg");
-  ctx.fillRect(0, 0, W, H);
-  if (task.phase === "hold") {
-    ctx.strokeStyle = css.getPropertyValue("--task-ink");
-    ctx.globalAlpha = 0.4;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 14, 0, 2 * Math.PI);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
-  if (task.target) {
-    ctx.fillStyle = task.feedback ? css.getPropertyValue(task.feedback === "hit" ? "--hit" : "--miss") : css.getPropertyValue("--target");
-    ctx.beginPath();
-    ctx.arc(cx + task.target.x, cy + task.target.y, task.target.radius, 0, 2 * Math.PI);
-    ctx.fill();
-  }
-  ctx.strokeStyle = css.getPropertyValue("--task-ink");
-  ctx.lineWidth = 2;
-  const px = cx + task.x;
-  const py = cy + task.y;
-  ctx.beginPath();
-  ctx.moveTo(px - 8, py);
-  ctx.lineTo(px + 8, py);
-  ctx.moveTo(px, py - 8);
-  ctx.lineTo(px, py + 8);
-  ctx.stroke();
-  requestAnimationFrame(draw);
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function enterTask() {
-  $("task").classList.add("on");
-  resizeCanvas();
-  try {
-    await task.canvas.requestPointerLock({ unadjustedMovement: true });
-  } catch {
-    await task.canvas.requestPointerLock();
-    $("lockNote").innerHTML = '<span class="warn">Raw (unadjusted) input was not available in this browser; OS acceleration may affect the numbers.</span>';
-  }
-  if (document.pointerLockElement !== task.canvas) throw new Error("pointer lock refused");
-  task.active = true;
-  requestAnimationFrame(draw);
-}
-
-function exitTask() {
-  task.active = false;
-  task.target = null;
-  task.rec = null;
-  if (document.pointerLockElement) document.exitPointerLock();
-  $("task").classList.remove("on");
-}
-
-function aborted() {
-  return !task.active || document.pointerLockElement !== task.canvas;
-}
-
-async function runFlick(trial, profile) {
-  const tgt = targetFor(trial, innerWidth, innerHeight);
-  task.profile = profile;
-  task.st = createState();
-  task.lastTs = null;
-  task.x = 0;
-  task.y = 0;
-  task.target = null;
-  task.feedback = null;
-  task.phase = "hold";
-  await sleep(350 + Math.random() * 400);
-  if (aborted()) return null;
-  task.x = 0;
-  task.y = 0;
-  task.phase = "go";
-  task.target = tgt;
-  const t0 = performance.now();
-  task.rec = [{ t: 0, x: 0, y: 0 }];
-  task.rec.t0 = t0;
-  const click = await new Promise((resolve) => {
-    task.onClick = resolve;
-    setTimeout(() => resolve(null), TRIAL_TIMEOUT_MS);
-  });
-  task.onClick = null;
-  const samples = task.rec;
-  task.rec = null;
-  if (aborted()) return null;
-  const tClick = click === null ? null : click - t0;
-  const hit = tClick !== null && Math.hypot(task.x - tgt.x, task.y - tgt.y) <= tgt.radius;
-  if (tClick !== null) samples.push({ t: tClick, x: task.x, y: task.y });
-  task.feedback = hit ? "hit" : "miss";
-  await sleep(180);
-  task.target = null;
-  return {
-    dir: trial.dir,
-    theta: trial.theta,
-    amp: trial.amp,
-    D: tgt.D,
-    radius: tgt.radius,
-    hit,
-    timeout: tClick === null,
-    timeToHit: tClick,
-    seg: tClick === null ? { ok: false, reason: "timeout" } : pickSeg(segmentTrial(samples, tgt)),
-    samples,
-  };
-}
-
-function pickSeg(s) {
-  return s.ok ? { ok: true, rho: s.rho, rhoMirror: s.rhoMirror, lateral: s.lateral } : { ok: false, reason: s.reason };
-}
-
-function hud(text) {
-  $("hud").textContent = text;
-}
-
-async function runTrials(kind, plan, profileFor) {
-  const session = newSession(kind);
-  try {
-    await enterTask();
-    for (let i = 0; i < plan.length; i++) {
-      hud(`${i + 1} / ${plan.length}  ·  Esc to stop`);
-      const res = await runFlick(plan[i], profileFor(plan[i]));
-      if (!res) break;
-      session.trials.push({ ...res, cond: plan[i].cond, block: plan[i].block });
-    }
-  } catch (err) {
-    alert(`Could not start: ${err.message}. Click the page first, and use a Chromium-based browser for raw input.`);
-  } finally {
-    exitTask();
-  }
-  finishSession(session);
-}
+let arena;
 
 function newSession(kind) {
-  return {
-    id: `${Date.now()}`,
-    kind,
-    sim: SIM,
-    profileKey: profileKey(app.profile),
-    profile: { ...app.profile },
-    settings: { ...app.settings },
-    trials: [],
-    runs: [],
-  };
+  return { id: `${Date.now()}`, kind, sim: SIM, calibKey: calibKey(), profile: { ...app.profile }, settings: { ...app.settings }, trials: [], runs: [] };
 }
 
-function finishSession(session) {
+function finish(session) {
   if (session.trials.length || session.runs.length) app.sessions.push(session);
   save();
   renderAll();
 }
 
-// Each mini-block visits every direction once with distances rotating, so both conditions get
-// the same direction and distance mix.
 function abPlan() {
   const seed = Date.now() & 0xffff;
   return AB_ORDER.flatMap((cond, b) =>
@@ -1361,95 +2115,32 @@ function abPlan() {
   );
 }
 
-// The control keeps the profile's direction-averaged gain (a0), so A and B differ only in
-// directional shape and switching blocks does not force a global re-adaptation.
-function controlProfile() {
-  return { ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms };
-}
+const profileFor = (t) => (t.cond === "A" ? controlProfile() : app.profile);
 
-function profileForCond(trial) {
-  return trial.cond === "A" ? controlProfile() : app.profile;
-}
-
-async function runTracking() {
-  const session = newSession("tracking");
+async function runReal(kind, plan, pf, label) {
+  const session = newSession(kind);
   try {
-    await enterTask();
-    for (const [i, cond] of ["A", "B", "B", "A"].entries()) {
-      hud(`Tracking ${i + 1} / 4: keep the crosshair on the moving target  ·  Esc to stop`);
-      const run = await trackRun(cond === "A" ? controlProfile() : app.profile);
-      if (!run) break;
-      session.runs.push({ cond, ...run });
-    }
+    const res = await arena.runFlicks({ plan, profileFor: pf, settings: app.settings, k: unitsPerCount(), label });
+    session.trials = res.trials;
+    session.raw = res.raw;
   } catch (err) {
-    alert(`Could not start: ${err.message}`);
-  } finally {
-    exitTask();
+    $(kind === "ab" ? "abResult" : "analysis").innerHTML = verdictHtml("bad", "Could not start", `${esc(err.message)}. Click inside the page first, and use Chrome or Edge.`);
   }
-  finishSession(session);
+  finish(session);
 }
-
-async function trackRun(profile) {
-  task.profile = profile;
-  task.st = createState();
-  task.lastTs = null;
-  const S = 0.22 * Math.min(innerWidth, innerHeight);
-  const comps = [0.13, 0.21, 0.34, 0.47].map((f) => ({
-    f,
-    ax: S * (0.4 + 0.6 * Math.random()) / 2,
-    ay: S * (0.4 + 0.6 * Math.random()) / 2,
-    px: 2 * Math.PI * Math.random(),
-    py: 2 * Math.PI * Math.random(),
-  }));
-  const pos = (t) => ({
-    x: comps.reduce((a, c) => a + c.ax * Math.sin(2 * Math.PI * c.f * t + c.px), 0),
-    y: comps.reduce((a, c) => a + c.ay * Math.sin(2 * Math.PI * c.f * t + c.py), 0),
-  });
-  const start = pos(0);
-  task.x = start.x;
-  task.y = start.y;
-  task.phase = "track";
-  task.target = { ...start, radius: 12 };
-  const t0 = performance.now();
-  const windows = [];
-  let acc = 0;
-  let n = 0;
-  let w = 2;
-  while (performance.now() - t0 < 10000) {
-    await new Promise((r) => requestAnimationFrame(r));
-    if (aborted()) return null;
-    const t = (performance.now() - t0) / 1000;
-    const p = pos(t);
-    task.target = { ...p, radius: 12 };
-    if (t < 2) continue;
-    acc += (task.x - p.x) ** 2 + (task.y - p.y) ** 2;
-    n++;
-    if (t >= w + 1) {
-      windows.push(Math.sqrt(acc / Math.max(1, n)));
-      acc = 0;
-      n = 0;
-      w += 1;
-    }
-  }
-  task.target = null;
-  await sleep(600);
-  return { windows };
-}
-
-// ---------- simulation mode ----------
 
 function simUser() {
-  if (!app.simUser) app.simUser = createSimUser({ seed: 7, biasCoef: [0.05, -0.03, 0.03, 0.02], noiseSd: 0.1, adaptRate: 0.05 });
+  if (!app.simUser) app.simUser = createSimUser({ seed: 7, biasCoef: [0.05, -0.03, 0.03, 0.02], oddCoef: [0.03, 0], noiseSd: 0.1, adaptRate: 0.05 });
   return app.simUser;
 }
 
-function simTrials(kind, plan, profileFor) {
+function runSim(kind, plan, pf) {
   const session = newSession(kind);
-  const W = 1600;
-  const H = 900;
+  const k = unitsPerCount();
   for (const trial of plan) {
-    const tgt = targetFor(trial, W, H);
-    const res = runSimTrial(simUser(), tgt, { sens: app.settings.sens, radius: tgt.radius, profile: profileFor(trial) });
+    const tgt = app.settings.mode === "fps" ? fpsTargetFor(trial) : targetFor(trial, 1600, 900);
+    const res = runSimTrial(simUser(), tgt, { sens: k, radius: tgt.radius, profile: pf(trial) });
+    const seg = segmentTrial(res.samples, tgt);
     session.trials.push({
       dir: trial.dir,
       theta: trial.theta,
@@ -1461,86 +2152,121 @@ function simTrials(kind, plan, profileFor) {
       hit: res.hit,
       timeout: false,
       timeToHit: res.timeToHit,
-      seg: pickSeg(segmentTrial(res.samples, tgt)),
-      samples: res.samples,
+      seg: seg.ok ? { ok: true, rho: seg.rho, rhoMirror: seg.rhoMirror, lateral: seg.lateral, onsetMs: seg.onsetMs } : { ok: false, reason: seg.reason },
     });
   }
-  finishSession(session);
+  finish(session);
 }
 
-// ---------- wiring ----------
+// ---------- tooltip ----------
+
+function bindTooltip() {
+  const tip = $("tip");
+  const show = (el, x, y) => {
+    tip.textContent = el.getAttribute("data-tip");
+    tip.classList.add("on");
+    const w = tip.offsetWidth;
+    tip.style.left = `${Math.min(innerWidth - w - 8, x + 14)}px`;
+    tip.style.top = `${y + 16}px`;
+  };
+  const hide = () => tip.classList.remove("on");
+  document.addEventListener("pointermove", (e) => {
+    const el = e.target.closest?.("[data-tip]");
+    if (el) show(el, e.clientX, e.clientY);
+    else hide();
+  });
+  document.addEventListener("focusin", (e) => {
+    const el = e.target.closest?.("[data-tip]");
+    if (!el) return hide();
+    const r = el.getBoundingClientRect();
+    show(el, r.right, r.top);
+  });
+  document.addEventListener("focusout", hide);
+}
+
+// ---------- theme ----------
+
+function bindTheme() {
+  const order = ["system", "light", "dark"];
+  let cur = "system";
+  try {
+    cur = localStorage.getItem(THEME_KEY) || "system";
+  } catch {
+    /* default to system */
+  }
+  const apply = () => {
+    if (cur === "system") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = cur;
+    $("themeBtn").textContent = `Theme: ${cur}`;
+  };
+  apply();
+  $("themeBtn").addEventListener("click", () => {
+    cur = order[(order.indexOf(cur) + 1) % order.length];
+    try {
+      localStorage.setItem(THEME_KEY, cur);
+    } catch {
+      /* not persisted */
+    }
+    apply();
+  });
+}
+
+// ---------- init ----------
 
 function init() {
   load();
-  task.canvas = $("canvas");
-  task.ctx = task.canvas.getContext("2d");
+  arena = createArena({ root: $("arena"), canvas: $("canvas"), hud: $("hud"), progress: $("arenaProgress") });
   if (SIM) {
     $("simBanner").hidden = false;
-    $("btnCalib").textContent = "Simulate calibration block";
-    $("btnAB").textContent = "Simulate A/B session";
-    $("btnTrack").disabled = true;
-    $("btnTrack").title = "Tracking is not simulated";
+    $("simBadge").hidden = false;
+    $("btnCalib").textContent = "Simulate a block";
+    $("btnAB").textContent = "Simulate an A/B session";
   }
-  window.addEventListener("resize", () => task.active && resizeCanvas());
-  document.addEventListener("pointermove", onPointerMove);
-  document.addEventListener("mousedown", (e) => {
-    if (task.active && e.button === 0 && task.onClick) task.onClick(performance.now());
-  });
-  document.addEventListener("pointerlockchange", () => {
-    if (!document.pointerLockElement && task.active) {
-      task.active = false;
-      if (task.onClick) task.onClick(null);
-    }
-  });
-  const num = (id, key, min) =>
-    $(id).addEventListener("change", () => {
-      const v = Number($(id).value);
-      if (Number.isFinite(v) && v >= min) app.settings[key] = v;
-      save();
-      renderAll();
-    });
-  num("dpi", "dpi", 100);
-  num("sens", "sens", 0.05);
-  $("anchor").addEventListener("change", () => {
-    app.settings.anchor = $("anchor").value;
-    save();
-  });
+  bindSetup();
+  bindTooltip();
+  bindTheme();
+  document.querySelectorAll("nav.steps [data-step]").forEach((b) => b.addEventListener("click", () => go(b.dataset.step)));
+  document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   $("btnCalib").addEventListener("click", () => {
     const plan = makeBlock(1, Date.now() & 0xffff);
-    if (SIM) simTrials("calibrate", plan, () => app.profile);
-    else runTrials("calibrate", plan, () => app.profile);
+    if (SIM) runSim("calibrate", plan, () => app.profile);
+    else runReal("calibrate", plan, () => app.profile, "Calibration");
   });
   $("btnAnalyze").addEventListener("click", runAnalysis);
   $("btnAccept").addEventListener("click", () => {
     if (!app.proposal) return;
     app.profile = app.proposal.profile;
     app.proposal = null;
-    $("analysis").innerHTML = `<p>Profile accepted. Run another calibration block to measure the residual, then an A/B session.</p>`;
+    $("analysis").innerHTML = verdictHtml("good", "Profile updated", "Play another block to measure what is left, then analyze again.");
+    $("analysisFacts").innerHTML = "";
     save();
     renderAll();
   });
   $("btnResetProfile").addEventListener("click", () => {
     app.profile = { ...defaultProfile(), lambda: lambdaForDpi(app.settings.dpi) };
     app.proposal = null;
+    $("analysis").innerHTML = "";
+    $("analysisFacts").innerHTML = "";
     save();
     renderAll();
   });
   $("btnAB").addEventListener("click", () => {
     const plan = abPlan();
-    if (SIM) simTrials("ab", plan, profileForCond);
-    else runTrials("ab", plan, profileForCond);
+    if (SIM) runSim("ab", plan, profileFor);
+    else runReal("ab", plan, profileFor, "A/B test");
   });
-  $("btnTrack").addEventListener("click", runTracking);
-  $("btnConf").addEventListener("click", () => download("profile.conf", `# DirGain profile, device coordinates (y down)\n${toConf(app.profile)}`));
-  $("btnJson").addEventListener("click", () =>
-    download(
-      "profile.json",
-      JSON.stringify({ format: "dirgain-profile", version: 1, profile: app.profile, settings: app.settings, created: new Date().toISOString() }, null, 2),
-      "application/json",
-    ),
-  );
+  $("btnTrack").addEventListener("click", async () => {
+    const session = newSession("tracking");
+    try {
+      const res = await arena.runTracking({ conds: ["A", "B", "B", "A"], profileFor: (c) => (c === "A" ? controlProfile() : app.profile), settings: app.settings, k: unitsPerCount() });
+      session.runs = res.runs;
+    } catch (err) {
+      $("abResult").innerHTML = verdictHtml("bad", "Could not start", esc(err.message));
+    }
+    finish(session);
+  });
   $("btnData").addEventListener("click", () =>
-    download("dirgain-data.json", JSON.stringify({ format: "dirgain-data", version: 1, ...app, simUser: undefined, proposal: undefined }), "application/json"),
+    download("dirgain-data.json", JSON.stringify({ format: "dirgain-data", version: 2, settings: app.settings, profile: app.profile, sessions: app.sessions }), "application/json"),
   );
   $("importData").addEventListener("change", async (e) => {
     const f = e.target.files?.[0];
@@ -1554,7 +2280,7 @@ function init() {
       save();
       renderAll();
     } catch (err) {
-      alert(`Import failed: ${err.message}`);
+      $("dataBody").insertAdjacentHTML("afterbegin", verdictHtml("bad", "Import failed", esc(err.message)));
     }
   });
   $("btnClear").addEventListener("click", () => {
@@ -1563,8 +2289,7 @@ function init() {
     save();
     renderAll();
   });
-  renderAll();
-  save();
+  go(app.step);
 }
 
 init();

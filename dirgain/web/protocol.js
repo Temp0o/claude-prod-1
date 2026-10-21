@@ -23,6 +23,15 @@ export function makeBlock(reps, seed) {
   return trials;
 }
 
+// FPS mode: flick amplitudes in degrees of camera rotation, a typical spread for shooters.
+export const FPS_AMPS_DEG = [8, 18, 32];
+
+// Target in (yaw right, pitch down) degrees from the start view; radius is angular.
+export function fpsTargetFor(trial) {
+  const D = FPS_AMPS_DEG[trial.amp];
+  return { x: D * Math.cos(trial.theta), y: D * Math.sin(trial.theta), D, radius: Math.max(0.8, D / 24) };
+}
+
 export function targetFor(trial, viewW, viewH) {
   const D = AMP_FRACS[trial.amp] * Math.min(viewW, viewH);
   return {

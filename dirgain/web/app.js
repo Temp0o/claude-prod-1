@@ -1,56 +1,49 @@
-import { createState, defaultProfile, logGainAtAngle, step, toConf, PARAM_KEYS } from "../core/dirgain.js";
-import { analyze, bootstrapDiff, segmentTrial, updateProfile } from "./analysis.js";
-import { polarChart } from "./charts.js";
-import { DIRECTIONS, makeBlock, targetFor } from "./protocol.js";
+import { defaultProfile, logGainAtAngle, toConf, PARAM_KEYS } from "../core/dirgain.js";
+import { analyze, bootstrapDiff, rawAccelFit, segmentTrial, updateProfile } from "./analysis.js";
+import { createArena } from "./arena.js";
+import { esc, intervalChart, meter, pct, polarChart } from "./charts.js";
+import { GAMES, cm360, degPerCount, gameById } from "./games.js";
+import { DIRECTIONS, fpsTargetFor, makeBlock, targetFor } from "./protocol.js";
 import { createSimUser, runSimTrial } from "./simuser.js";
 
 const SIM = new URLSearchParams(location.search).has("sim");
-const STORE_KEY = "dirgain.v1";
+const STORE_KEY = "dirgain.v2";
+const THEME_KEY = "dirgain.theme";
 const AB_ORDER = ["A", "B", "B", "A", "B", "A", "A", "B"];
-const MIN_AB_TRIALS = 280;
-const TRIAL_TIMEOUT_MS = 3000;
+const CAL_GOAL = 400;
+const AB_GOAL = 280;
 const $ = (id) => document.getElementById(id);
 
 const app = {
-  settings: { dpi: 800, sens: 1, anchor: "horizontal" },
+  settings: { game: "valorant", sens: 0.35, cm360: 34, dpi: 800, fov: 103, mode: "fps", anchor: "horizontal", allowOdd: true, sens2d: 1 },
   profile: defaultProfile(),
   proposal: null,
+  lastResult: null,
   sessions: [],
+  step: "setup",
   simUser: null,
 };
 
-function profileKey(p) {
-  return PARAM_KEYS.filter((k) => k !== "clamp").map((k) => Number(p[k]).toFixed(6)).join(",");
-}
-
-function lambdaForDpi(dpi) {
-  return Math.max(2, Math.round((dpi * 0.25) / 25.4));
-}
-
-function stripRaw(session) {
-  return { ...session, trials: session.trials?.map(({ samples, ...t }) => t) };
-}
+// ---------- persistence ----------
 
 function save() {
   try {
-    localStorage.setItem(
-      STORE_KEY,
-      JSON.stringify({ settings: app.settings, profile: app.profile, sessions: app.sessions.map(stripRaw) }),
-    );
-    $("storeNote").textContent = `${app.sessions.length} session(s) saved in this browser (summaries only; download raw data to keep traces).`;
+    const sessions = app.sessions.map((s) => ({ ...s, trials: s.trials?.map(({ samples, ...t }) => t) }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ settings: app.settings, profile: app.profile, sessions, step: app.step }));
+    $("storeNote").textContent = `${app.sessions.length} session(s) saved in this browser. Traces are kept only until you close the tab; download raw data to keep them.`;
   } catch {
-    $("storeNote").textContent = "Browser storage unavailable: download your data before closing the tab.";
+    $("storeNote").textContent = "This browser blocked local storage. Download your data before closing the tab.";
   }
 }
 
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    if (s) {
-      Object.assign(app.settings, s.settings || {});
-      app.profile = { ...defaultProfile(), ...(s.profile || {}) };
-      app.sessions = s.sessions || [];
-    }
+    if (!s) return;
+    Object.assign(app.settings, s.settings || {});
+    app.profile = { ...defaultProfile(), ...(s.profile || {}) };
+    app.sessions = s.sessions || [];
+    if (s.step) app.step = s.step;
   } catch {
     /* storage blocked or corrupt: start fresh */
   }
@@ -64,361 +57,397 @@ function download(name, text, type = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-// ---------- analysis and rendering ----------
+// ---------- derived state ----------
+
+const profileKey = (p) => PARAM_KEYS.filter((k) => k !== "clamp").map((k) => Number(p[k]).toFixed(6)).join(",");
+const unitsPerCount = () => (app.settings.mode === "fps" ? degPerCount(app.settings) : app.settings.sens2d);
+const calibKey = () => `${profileKey(app.profile)}|${app.settings.mode}|${unitsPerCount().toPrecision(6)}`;
+const lambdaForDpi = (dpi) => Math.max(2, Math.round((dpi * 0.25) / 25.4));
+const mean = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN);
+
+function sessionsOf(kind) {
+  const key = calibKey();
+  return app.sessions.filter((s) => s.kind === kind && s.calibKey === key && !!s.sim === SIM);
+}
 
 function calibTrials() {
-  const key = profileKey(app.profile);
-  return app.sessions
-    .filter((s) => s.kind === "calibrate" && s.profileKey === key && !!s.sim === SIM)
-    .flatMap((s) => s.trials);
+  return sessionsOf("calibrate").flatMap((s) => s.trials.map((t) => ({ ...t, group: `${s.id}:${t.amp}` })));
 }
+
+function otherCalibCount() {
+  const key = calibKey();
+  return app.sessions.filter((s) => s.kind === "calibrate" && s.calibKey !== key && !!s.sim === SIM).reduce((a, s) => a + s.trials.length, 0);
+}
+
+function directionLabels() {
+  return app.settings.mode === "fps"
+    ? { right: "right", left: "left", up: "push (aim up)", down: "pull (aim down)" }
+    : { right: "right", left: "left", up: "up", down: "down" };
+}
+
+function controlProfile() {
+  return { ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms };
+}
+
+// ---------- step navigation ----------
+
+const STEPS = ["setup", "calibrate", "validate", "install", "data"];
+
+function go(step) {
+  app.step = STEPS.includes(step) ? step : "setup";
+  for (const s of STEPS) {
+    $(`panel-${s}`).classList.toggle("on", s === app.step);
+    const b = document.querySelector(`nav.steps [data-step="${s}"]`);
+    if (s === app.step) b.setAttribute("aria-current", "step");
+    else b.removeAttribute("aria-current");
+  }
+  renderAll();
+  save();
+  window.scrollTo(0, 0);
+}
+
+function renderRail() {
+  const st = app.settings;
+  const g = gameById(st.game);
+  $("st-setup").textContent = `${g.id === "custom" ? "Custom" : g.name} · ${cm360(st).toFixed(1)} cm/360`;
+  const ok = calibTrials().filter((t) => t.seg?.ok).length;
+  const flat = Math.abs(logGainAtAngle(app.profile, 0)) < 1e-9 && Math.abs(logGainAtAngle(app.profile, Math.PI / 2)) < 1e-9 && Math.abs(logGainAtAngle(app.profile, Math.PI / 4)) < 1e-9;
+  $("st-calibrate").textContent = `${ok} usable flicks · ${flat ? "flat profile" : "profile on"}`;
+  const ab = sessionsOf("ab").flatMap((s) => s.trials);
+  const n = Math.min(ab.filter((t) => t.cond === "A").length, ab.filter((t) => t.cond === "B").length);
+  $("st-validate").textContent = n ? `${n} of ${AB_GOAL} per condition` : "not started";
+  $("st-install").textContent = "Raw Accel or full profile";
+  $("st-data").textContent = `${app.sessions.length} session(s)`;
+  document.querySelectorAll("nav.steps button").forEach((b) => {
+    const s = b.dataset.step;
+    b.classList.toggle("done", (s === "setup" && app.step !== "setup") || (s === "calibrate" && !flat) || (s === "validate" && n >= AB_GOAL));
+  });
+}
+
+// ---------- setup ----------
+
+function renderSetup() {
+  const st = app.settings;
+  const g = gameById(st.game);
+  $("game").value = st.game;
+  $("sens").value = st.sens;
+  $("cm360").value = st.cm360;
+  $("dpi").value = st.dpi;
+  $("fov").value = st.fov;
+  $("anchor").value = st.anchor;
+  $("allowOdd").checked = !!st.allowOdd;
+  $("sens2d").value = st.sens2d;
+  $("sensField").hidden = g.yaw === null;
+  $("cmField").hidden = g.yaw !== null;
+  document.querySelectorAll('input[name="mode"]').forEach((r) => (r.checked = r.value === st.mode));
+  const k = degPerCount(st);
+  $("sensReadout").innerHTML = `
+    <div><b>${cm360(st).toFixed(1)}</b><span>cm per 360° turn</span></div>
+    <div><b>${(k * st.dpi).toFixed(1)}</b><span>degrees per inch of mouse travel</span></div>
+    <div><b>${k.toFixed(4)}</b><span>degrees per mouse count</span></div>`;
+}
+
+function bindSetup() {
+  $("game").innerHTML = GAMES.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join("");
+  $("game").addEventListener("change", () => {
+    const g = gameById($("game").value);
+    app.settings.game = g.id;
+    if (g.sens !== null) app.settings.sens = g.sens;
+    app.settings.fov = g.fov;
+    save();
+    renderAll();
+  });
+  const num = (id, key, min, max = Infinity) =>
+    $(id).addEventListener("change", () => {
+      const v = Number($(id).value);
+      if (Number.isFinite(v) && v >= min && v <= max) app.settings[key] = v;
+      save();
+      renderAll();
+    });
+  num("sens", "sens", 0.0001);
+  num("cm360", "cm360", 1, 1000);
+  num("dpi", "dpi", 100, 32000);
+  num("fov", "fov", 60, 130);
+  num("sens2d", "sens2d", 0.05, 10);
+  $("anchor").addEventListener("change", () => {
+    app.settings.anchor = $("anchor").value;
+    save();
+  });
+  $("allowOdd").addEventListener("change", () => {
+    app.settings.allowOdd = $("allowOdd").checked;
+    save();
+  });
+  document.querySelectorAll('input[name="mode"]').forEach((r) =>
+    r.addEventListener("change", () => {
+      app.settings.mode = r.value;
+      save();
+      renderAll();
+    }),
+  );
+}
+
+// ---------- calibrate ----------
 
 function dirPoints(trials) {
   const ok = trials.filter((t) => t.seg?.ok);
-  if (ok.length < 24) return [];
-  const mean = ok.reduce((a, t) => a + Math.log(t.seg.rho), 0) / ok.length;
+  if (ok.length < 48) return [];
+  const all = mean(ok.map((t) => Math.log(t.seg.rho)));
   const shift = app.proposal ? app.proposal.profile.a0 - app.profile.a0 : 0;
-  const half = DIRECTIONS / 2;
   const pts = [];
-  for (let d = 0; d < half; d++) {
-    const sel = ok.filter((t) => t.dir % half === d);
-    if (sel.length < 3) continue;
-    const m = sel.reduce((a, t) => a + Math.log(t.seg.rho), 0) / sel.length;
+  for (let d = 0; d < DIRECTIONS; d++) {
+    const sel = ok.filter((t) => t.dir === d);
+    if (sel.length < 2) continue;
+    const m = mean(sel.map((t) => Math.log(t.seg.rho))) - all;
     const theta = (2 * Math.PI * d) / DIRECTIONS;
-    pts.push({ theta, logRel: -(m - mean) + logGainAtAngle(app.profile, theta) + shift });
+    const value = -m + logGainAtAngle(app.profile, theta) + shift;
+    const deg = Math.round((theta * 180) / Math.PI);
+    pts.push({ theta, value, deg, n: sel.length, bias: m, tip: `${deg}°: flicks ${m >= 0 ? "overshoot" : "undershoot"} by ${pct(Math.abs(m)).slice(1)} vs your average (${sel.length} flicks). Implied gain ${pct(value)}.` });
   }
   return pts;
 }
 
-function fmtPct(logGain) {
-  const v = (Math.exp(logGain) - 1) * 100;
-  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
-}
-
-function renderProfile() {
+function renderCalibrate() {
   const trials = calibTrials();
-  $("chart").innerHTML = polarChart({
-    current: app.profile,
-    proposed: app.proposal?.profile,
-    dirPoints: dirPoints(trials),
-  });
-  const rows = [0, 45, 90, 135].map((deg) => {
+  const ok = trials.filter((t) => t.seg?.ok).length;
+  $("calMeter").innerHTML = meter(ok, CAL_GOAL);
+  $("calNum").textContent = `${ok} / ${CAL_GOAL} usable flicks`;
+  const other = otherCalibCount();
+  $("calHint").textContent = other
+    ? `${other} flicks from other settings or an earlier profile are kept but not mixed in.`
+    : "About six blocks give a reliable answer. Breaks between blocks are fine.";
+  const pts = dirPoints(trials);
+  $("chart").innerHTML = polarChart({ current: app.profile, proposed: app.proposal?.profile, points: pts, labels: directionLabels() });
+  const rows = [0, 45, 90, 135, 180, 225, 270, 315].map((deg) => {
     const th = (deg * Math.PI) / 180;
-    const cur = fmtPct(logGainAtAngle(app.profile, th));
-    const prop = app.proposal ? fmtPct(logGainAtAngle(app.proposal.profile, th)) : "–";
-    return `<tr><td>${deg}° / ${deg + 180}°</td><td>${cur}</td><td>${prop}</td></tr>`;
+    const p = pts.find((q) => q.deg === deg);
+    return `<tr><td>${deg}°</td><td>${pct(logGainAtAngle(app.profile, th))}</td><td>${app.proposal ? pct(logGainAtAngle(app.proposal.profile, th)) : "·"}</td><td>${p ? pct(p.value) : "·"}</td></tr>`;
   });
-  $("profileTable").innerHTML =
-    `<table><tr><th>Direction (0° = right, 90° = down)</th><th>Current</th><th>Proposed</th></tr>${rows.join("")}</table>` +
-    `<p class="muted">Solid: current profile. Dashed: proposal. Dots: gain implied by your measured bias. Radial scale exaggerated 4×.</p>`;
+  $("chartTable").innerHTML = `<table><tr><th>Direction</th><th>Current</th><th>Proposed</th><th>Implied</th></tr>${rows.join("")}</table>`;
   $("btnAccept").disabled = !app.proposal;
 }
 
-function renderCounts() {
-  const trials = calibTrials();
-  const ok = trials.filter((t) => t.seg?.ok).length;
-  $("calibCount").textContent = `${trials.length} trials collected with the current profile (${ok} usable). The analysis needs about 400 for a reliable result.`;
-  const cps = 1 / app.settings.sens;
-  const cm = (window.innerWidth * cps * 2.54) / app.settings.dpi;
-  $("sensNote").textContent = `Crossing this screen's width takes about ${cm.toFixed(1)} cm of mouse travel. Pick a speed that feels like your in-game aim.`;
+function verdictHtml(kind, title, text) {
+  const icon = { good: "✓", bad: "✕", neutral: "○" }[kind];
+  return `<div class="verdict ${kind}"><span class="icon" aria-hidden="true">${icon}</span><div><h3>${esc(title)}</h3><p>${text}</p></div></div>`;
 }
 
 function runAnalysis() {
   const trials = calibTrials();
-  const usable = trials.filter((t) => t.seg?.ok).map((t) => ({ theta: t.theta, amp: t.amp, rho: t.seg.rho }));
-  const res = analyze(usable);
-  const el = $("analysis");
+  const usable = trials.filter((t) => t.seg?.ok).map((t) => ({ theta: t.theta, amp: t.amp, group: t.group, rho: t.seg.rho }));
   app.proposal = null;
+  const res = analyze(usable, { odd: !!app.settings.allowOdd });
+  app.lastResult = res;
   if (!res.ok) {
-    el.innerHTML = `<p class="warn">${res.reason}.</p>`;
-    renderProfile();
+    $("analysis").innerHTML = verdictHtml("neutral", "Not enough flicks yet", `${esc(res.reason)}. Play a block first.`);
+    $("analysisFacts").innerHTML = "";
+    renderCalibrate();
     return;
   }
-  const rejected = trials.length - usable.length;
-  const spread = (res.residualRms * 100).toFixed(1);
-  let html = `<table>
-    <tr><td>Usable trials</td><td>${res.n} (${rejected} rejected)</td></tr>
-    <tr><td>Harmonics (auto-selected)</td><td>${res.K}</td></tr>
-    <tr><td>Directional bias (RMS)</td><td>${spread}%</td></tr>
-    <tr><td>Gate: joint Wald test</td><td>p = ${res.p.toExponential(2)} (needs &lt; 0.01)</td></tr>
-  </table>`;
+  const fmtP = (p) => (p < 0.001 ? "< 0.001" : p.toFixed(3));
+  const gateRow = (label, g) =>
+    g ? `<tr><td>${label}</td><td class="num">p ${fmtP(g.p)}</td><td>${g.pass ? '<span class="ok">✓ real</span>' : '<span class="muted">not shown</span>'}</td></tr>` : "";
+  const cons = res.consistency;
+  $("analysisFacts").innerHTML = `
+    <table class="facts">
+      <tr><th>Check</th><th>Evidence</th><th>Result</th></tr>
+      ${gateRow("Direction shape (diagonals, axes)", res.even)}
+      ${gateRow("Left vs right, push vs pull", res.odd)}
+      <tr><td>Bias size across directions</td><td class="num">${(res.residualRms * 100).toFixed(1)}% RMS</td><td></td></tr>
+      ${cons ? `<tr><td>Same pattern at all distances</td><td class="num">p ${fmtP(cons.p)}</td><td>${cons.consistent ? '<span class="ok">✓ yes</span>' : '<span class="no">differs by distance</span>'}</td></tr>` : ""}
+      <tr><td>Flicks analyzed</td><td class="num">${res.n} of ${trials.length}</td><td class="muted small">${trials.length - res.n} rejected</td></tr>
+    </table>
+    <p class="hint">A check passes only when shuffling your directions almost never produces a pattern this strong (p below ${app.settings.allowOdd ? "0.005" : "0.01"}). Each round moves the profile only halfway toward the dots, so noise cannot push it too far.</p>`;
   if (res.pass) {
-    app.proposal = { profile: updateProfile(app.profile, res, { anchor: app.settings.anchor }).profile, result: res };
-    app.proposal.profile.lambda = lambdaForDpi(app.settings.dpi);
-    html += `<p class="good">A directional bias is statistically reliable. A proposal is shown on the profile chart. Accept it, then run another calibration block to measure what is left (and an A/B session to see whether it helps).</p>`;
+    const next = updateProfile(app.profile, res, { anchor: app.settings.anchor, allowOdd: !!app.settings.allowOdd }).profile;
+    next.lambda = lambdaForDpi(app.settings.dpi);
+    app.proposal = { profile: next, result: res };
+    $("analysis").innerHTML = verdictHtml(
+      "good",
+      "Your aim has a measurable directional bias",
+      "The orange curve is the proposed correction. Use it, then play another block: the next analysis measures what is left. Stop when no check passes.",
+    );
   } else {
-    html += `<p>No reliable directional bias at this sample size. Keep the current profile. Collect more blocks, or stop here: a flat profile is the right answer if your aim has no consistent directional bias.</p>`;
+    $("analysis").innerHTML = verdictHtml(
+      "neutral",
+      "No reliable directional bias at this sample size",
+      "Keep the current profile. Play more blocks, or stop here: if your aim has no consistent directional bias, a flat profile is the right answer.",
+    );
   }
-  el.innerHTML = html;
-  renderProfile();
+  renderCalibrate();
+  renderRail();
 }
 
-function renderAB() {
-  const key = profileKey(app.profile);
-  const ab = app.sessions.filter((s) => s.kind === "ab" && s.profileKey === key && !!s.sim === SIM);
-  const tr = app.sessions.filter((s) => s.kind === "tracking" && s.profileKey === key && !!s.sim === SIM);
-  const el = $("abResult");
-  if (!ab.length && !tr.length) {
-    el.innerHTML = `<p class="muted">No A/B data for the current profile yet.</p>`;
+// ---------- validate ----------
+
+function renderValidate() {
+  const ab = sessionsOf("ab");
+  const tr = sessionsOf("tracking");
+  const trials = ab.flatMap((s) => s.trials.map((t) => ({ ...t, blockId: `${s.id}:${t.block}` })));
+  const by = (c) => trials.filter((t) => t.cond === c);
+  const n = Math.min(by("A").length, by("B").length);
+  $("abMeter").innerHTML = meter(n, AB_GOAL);
+  $("abNum").textContent = `${n} / ${AB_GOAL} flicks per condition`;
+  const flat = profileKey(app.profile) === profileKey({ ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms });
+  $("btnAB").disabled = flat;
+  $("btnTrack").disabled = flat || SIM;
+  if (flat) {
+    $("abResult").innerHTML = verdictHtml("neutral", "Nothing to test yet", "Your profile is flat. Calibrate and accept a profile first.");
     return;
   }
-  const trials = ab.flatMap((s) => s.trials.map((t) => ({ ...t, blockId: `${s.id}:${t.block}` })));
-  const byCond = (c) => trials.filter((t) => t.cond === c);
-  const tth = (c) => byCond(c).filter((t) => t.hit).map((t) => t.timeToHit);
-  const hitRate = (c) => byCond(c).filter((t) => t.hit).length / Math.max(1, byCond(c).length);
-  const mean = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN);
-  // Resample whole mini-blocks: trials inside a block share warm-up, fatigue and adaptation state.
-  const blockMeans = (c) => {
-    const groups = new Map();
-    for (const t of byCond(c)) {
-      if (!t.hit) continue;
-      if (!groups.has(t.blockId)) groups.set(t.blockId, []);
-      groups.get(t.blockId).push(t.timeToHit);
-    }
-    return [...groups.values()].map(mean);
-  };
+  if (!trials.length && !tr.length) {
+    $("abResult").innerHTML = verdictHtml("neutral", "No A/B data for this profile yet", "One session is 192 targets, about five minutes.");
+    return;
+  }
   let html = "";
   if (trials.length) {
+    const blockMeans = (c) => {
+      const g = new Map();
+      for (const t of by(c)) {
+        if (!t.hit) continue;
+        if (!g.has(t.blockId)) g.set(t.blockId, []);
+        g.get(t.blockId).push(t.timeToHit);
+      }
+      return [...g.values()].map(mean);
+    };
     const d = bootstrapDiff(blockMeans("A"), blockMeans("B"));
-    const enough = Math.min(byCond("A").length, byCond("B").length) >= MIN_AB_TRIALS;
-    let verdict = "Not enough blocks yet.";
+    const tth = (c) => mean(by(c).filter((t) => t.hit).map((t) => t.timeToHit));
+    const hr = (c) => by(c).filter((t) => t.hit).length / Math.max(1, by(c).length);
+    const enough = n >= AB_GOAL;
     if (d) {
-      if (d.hi < 0) verdict = `<span class="good">The profile made you faster: the whole 95% interval is below zero.</span>`;
-      else if (d.lo > 0) verdict = `<span class="bad">The profile made you slower. Reset to flat.</span>`;
-      else verdict = "No detectable difference (the interval includes zero).";
-      if (!enough) verdict = `<b>Preliminary</b> (under ${MIN_AB_TRIALS} trials per condition, keep collecting): ${verdict}`;
+      let v;
+      if (d.hi < 0) v = ["good", enough ? "The profile makes you faster" : "Leaning faster (preliminary)", `With the profile you hit targets ${Math.abs(d.diff).toFixed(0)} ms sooner on average, and the whole 95% interval is below zero.`];
+      else if (d.lo > 0) v = ["bad", enough ? "The profile makes you slower" : "Leaning slower (preliminary)", "Reset to flat, or recalibrate. A profile that slows you down should not be used."];
+      else v = ["neutral", "No detectable difference yet", "The interval still includes zero."];
+      if (!enough) v[2] += ` Keep going until ${AB_GOAL} flicks per condition before deciding.`;
+      html += verdictHtml(...v);
+      html += `<figure class="chart" style="max-width:640px"><figcaption>Time to hit, with profile minus without (block means, 95% interval)</figcaption>${intervalChart({ diff: d.diff, lo: d.lo, hi: d.hi, unit: "ms", betterLabel: "profile faster", worseLabel: "profile slower" })}</figure>`;
     }
-    html += `<table>
-      <tr><th></th><th>Without profile</th><th>With profile</th></tr>
-      <tr><td>Trials</td><td>${byCond("A").length}</td><td>${byCond("B").length}</td></tr>
-      <tr><td>Hit rate</td><td>${(100 * hitRate("A")).toFixed(1)}%</td><td>${(100 * hitRate("B")).toFixed(1)}%</td></tr>
-      <tr><td>Mean time to hit</td><td>${mean(tth("A")).toFixed(0)} ms</td><td>${mean(tth("B")).toFixed(0)} ms</td></tr>
-    </table>`;
-    if (d) html += `<p>Difference (with − without): <b>${d.diff.toFixed(0)} ms</b>, 95% CI ${d.lo.toFixed(0)} to ${d.hi.toFixed(0)} ms (block bootstrap). ${verdict}</p>`;
+    html += `<table class="facts"><tr><th></th><th>Without</th><th>With profile</th></tr>
+      <tr><td>Flicks</td><td class="num">${by("A").length}</td><td class="num">${by("B").length}</td></tr>
+      <tr><td>Hit rate</td><td class="num">${(100 * hr("A")).toFixed(1)}%</td><td class="num">${(100 * hr("B")).toFixed(1)}%</td></tr>
+      <tr><td>Mean time to hit</td><td class="num">${tth("A").toFixed(0)} ms</td><td class="num">${tth("B").toFixed(0)} ms</td></tr></table>`;
   }
   if (tr.length) {
     const win = (c) => tr.flatMap((s) => s.runs.filter((r) => r.cond === c).flatMap((r) => r.windows));
     const d = bootstrapDiff(win("A"), win("B"));
+    const unit = app.settings.mode === "fps" ? "°" : "px";
     if (d) {
-      const worse = d.lo > 0;
-      html += `<p>Tracking guard: RMS error difference ${d.diff.toFixed(1)} px (95% CI ${d.lo.toFixed(1)} to ${d.hi.toFixed(1)}). ${
-        worse ? '<span class="bad">The profile hurts tracking.</span>' : "No tracking regression detected."
-      }</p>`;
+      html += `<h2>Tracking check</h2>`;
+      html += d.lo > 0
+        ? verdictHtml("bad", "The profile hurts tracking", "Your tracking error is higher with the profile. Consider resetting.")
+        : verdictHtml("good", "No tracking regression detected", "Following a moving target is not worse with the profile.");
+      html += `<figure class="chart" style="max-width:640px"><figcaption>Tracking error, with profile minus without (95% interval)</figcaption>${intervalChart({ diff: d.diff, lo: d.lo, hi: d.hi, unit, digits: 2, betterLabel: "profile more accurate", worseLabel: "profile less accurate" })}</figure>`;
     }
   }
-  el.innerHTML = html;
+  $("abResult").innerHTML = html;
+}
+
+// ---------- install ----------
+
+function renderInstall() {
+  const ra = rawAccelFit(app.profile);
+  const dpi = app.settings.dpi;
+  const json = [
+    `"Output DPI": ${(1000 * ra.sens).toFixed(1)},`,
+    `"Y/X output DPI ratio (vertical sens multiplier)": ${ra.yx.toFixed(4)},`,
+    `"L/R output DPI ratio (left sens multiplier)": ${ra.lr.toFixed(4)},`,
+    `"U/D output DPI ratio (up sens multiplier)": ${ra.ud.toFixed(4)},`,
+  ].join("\n");
+  const flat = ra.captured === 1 && Math.abs(ra.yx - 1) < 1e-9;
+  $("installBody").innerHTML = `
+    ${flat ? '<div class="callout"><b>Your profile is flat.</b> Calibrate and accept a profile first; until then both options do nothing.</div>' : ""}
+    <div class="paths">
+      <section>
+        <h3>Raw Accel</h3>
+        <p class="tagline">Signed driver many players already use. The safer choice for games with anti-cheat.</p>
+        <table class="facts">
+          <tr><th>Raw Accel setting</th><th>Value</th></tr>
+          <tr><td>Output DPI <span class="muted small">(device DPI not set in Raw Accel)</span></td><td class="num">${(1000 * ra.sens).toFixed(1)}</td></tr>
+          <tr><td>Output DPI <span class="muted small">(device DPI set to ${dpi})</span></td><td class="num">${(dpi * ra.sens).toFixed(1)}</td></tr>
+          <tr><td>Y/X ratio (vertical)</td><td class="num">${ra.yx.toFixed(4)}</td></tr>
+          <tr><td>L/R ratio (moving left)</td><td class="num">${ra.lr.toFixed(4)}</td></tr>
+          <tr><td>U/D ratio (moving up / pushing)</td><td class="num">${ra.ud.toFixed(4)}</td></tr>
+        </table>
+        <p class="small">Raw Accel can express <b>${(100 * ra.captured).toFixed(0)}%</b> of your profile's direction pattern (remaining error ${ra.rmsErrorPct.toFixed(1)}%, aim direction shifts up to ${ra.maxDirectionErrorDeg.toFixed(1)}°). It has no setting for diagonals.</p>
+        <ol>
+          <li>Install Raw Accel from its official GitHub releases and reboot.</li>
+          <li>In <span class="mono">settings.json</span>, set these four fields in your profile, then run <span class="mono">writer.exe settings.json</span> (or set them in the GUI where available).</li>
+        </ol>
+        <pre class="code" id="raJson">${esc(json)}</pre>
+        <div class="actions"><button class="btn" type="button" id="btnCopyRa">Copy these lines</button></div>
+      </section>
+      <section>
+        <h3>Full profile: DirGain for Windows</h3>
+        <p class="tagline">Applies every part of your profile, diagonals included, through the Interception driver.</p>
+        <ol>
+          <li>Install the Interception driver: from its GitHub release, run <span class="mono">install-interception.exe /install</span> as administrator, then reboot.</li>
+          <li>Put <span class="mono">dirgain.exe</span> (from <span class="mono">dirgain/dist/windows</span> in the repository) and your <span class="mono">profile.conf</span> in one folder.</li>
+          <li>Run <span class="mono">dirgain.exe profile.conf</span>. <span class="mono">Ctrl+Alt+F8</span> turns it on and off; saving a new profile.conf reloads it.</li>
+        </ol>
+        <div class="actions"><button class="btn primary" type="button" id="btnConf">Download profile.conf</button><button class="btn quiet" type="button" id="btnJson">profile.json</button></div>
+        <div class="callout"><b>Anti-cheat warning.</b> Kernel input filters like Interception are blocked or flagged by some anti-cheat systems. Check your game's rules first; when in doubt, use the Raw Accel route.</div>
+      </section>
+    </div>`;
+  $("btnCopyRa").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(json);
+      $("btnCopyRa").textContent = "Copied";
+    } catch {
+      const r = document.createRange();
+      r.selectNodeContents($("raJson"));
+      getSelection().removeAllRanges();
+      getSelection().addRange(r);
+      $("btnCopyRa").textContent = "Selected, press Ctrl+C";
+    }
+  });
+  $("btnConf").addEventListener("click", () => download("profile.conf", `# DirGain profile (device coordinates, y down)\n${toConf(app.profile)}`));
+  $("btnJson").addEventListener("click", () =>
+    download("profile.json", JSON.stringify({ format: "dirgain-profile", version: 2, profile: app.profile, settings: app.settings, created: new Date().toISOString() }, null, 2), "application/json"),
+  );
+}
+
+// ---------- data ----------
+
+function renderData() {
+  if (!app.sessions.length) {
+    $("dataBody").innerHTML = `<p class="muted">No sessions yet.</p>`;
+    return;
+  }
+  const rows = app.sessions
+    .slice(-12)
+    .reverse()
+    .map((s) => {
+      const n = s.trials?.length ?? 0;
+      const runs = s.runs?.length ?? 0;
+      const when = new Date(Number(s.id)).toLocaleString();
+      return `<tr><td>${esc(when)}</td><td>${esc(s.kind)}${s.sim ? " (sim)" : ""}</td><td>${esc(s.settings?.mode ?? "")}</td><td class="num">${s.kind === "tracking" ? `${runs} runs` : `${n} flicks`}</td></tr>`;
+    });
+  $("dataBody").innerHTML = `<table class="facts"><tr><th>When</th><th>Kind</th><th>Mode</th><th>Size</th></tr>${rows.join("")}</table>${app.sessions.length > 12 ? `<p class="hint">Showing the latest 12 of ${app.sessions.length}.</p>` : ""}`;
 }
 
 function renderAll() {
-  $("dpi").value = app.settings.dpi;
-  $("sens").value = app.settings.sens;
-  $("anchor").value = app.settings.anchor;
-  renderCounts();
-  renderProfile();
-  renderAB();
+  renderRail();
+  if (app.step === "setup") renderSetup();
+  if (app.step === "calibrate") renderCalibrate();
+  if (app.step === "validate") renderValidate();
+  if (app.step === "install") renderInstall();
+  if (app.step === "data") renderData();
 }
 
-// ---------- task runner (real mouse) ----------
+// ---------- running tasks ----------
 
-const task = {
-  canvas: null,
-  ctx: null,
-  active: false,
-  x: 0,
-  y: 0,
-  profile: null,
-  st: null,
-  lastTs: null,
-  rec: null,
-  onClick: null,
-  target: null,
-  phase: "idle",
-  feedback: null,
-  path: null,
-};
-
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  task.canvas.width = Math.round(innerWidth * dpr);
-  task.canvas.height = Math.round(innerHeight * dpr);
-  task.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-
-function onPointerMove(e) {
-  if (!task.active || document.pointerLockElement !== task.canvas) return;
-  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-  for (const ev of evs.length ? evs : [e]) {
-    const dx = ev.movementX;
-    const dy = ev.movementY;
-    if (!dx && !dy) continue;
-    const dt = task.lastTs === null ? 1 : ev.timeStamp - task.lastTs;
-    task.lastTs = ev.timeStamp;
-    const [ox, oy] = step(task.profile, task.st, dx, dy, dt);
-    task.x += ox * app.settings.sens;
-    task.y += oy * app.settings.sens;
-    if (task.rec) task.rec.push({ t: ev.timeStamp - task.rec.t0, x: task.x, y: task.y });
-  }
-}
-
-function draw() {
-  if (!task.active) return;
-  const ctx = task.ctx;
-  const W = innerWidth;
-  const H = innerHeight;
-  const cx = W / 2;
-  const cy = H / 2;
-  const css = getComputedStyle(document.documentElement);
-  ctx.fillStyle = css.getPropertyValue("--task-bg");
-  ctx.fillRect(0, 0, W, H);
-  if (task.phase === "hold") {
-    ctx.strokeStyle = css.getPropertyValue("--task-ink");
-    ctx.globalAlpha = 0.4;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 14, 0, 2 * Math.PI);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
-  if (task.target) {
-    ctx.fillStyle = task.feedback ? css.getPropertyValue(task.feedback === "hit" ? "--hit" : "--miss") : css.getPropertyValue("--target");
-    ctx.beginPath();
-    ctx.arc(cx + task.target.x, cy + task.target.y, task.target.radius, 0, 2 * Math.PI);
-    ctx.fill();
-  }
-  ctx.strokeStyle = css.getPropertyValue("--task-ink");
-  ctx.lineWidth = 2;
-  const px = cx + task.x;
-  const py = cy + task.y;
-  ctx.beginPath();
-  ctx.moveTo(px - 8, py);
-  ctx.lineTo(px + 8, py);
-  ctx.moveTo(px, py - 8);
-  ctx.lineTo(px, py + 8);
-  ctx.stroke();
-  requestAnimationFrame(draw);
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function enterTask() {
-  $("task").classList.add("on");
-  resizeCanvas();
-  try {
-    await task.canvas.requestPointerLock({ unadjustedMovement: true });
-  } catch {
-    await task.canvas.requestPointerLock();
-    $("lockNote").innerHTML = '<span class="warn">Raw (unadjusted) input was not available in this browser; OS acceleration may affect the numbers.</span>';
-  }
-  if (document.pointerLockElement !== task.canvas) throw new Error("pointer lock refused");
-  task.active = true;
-  requestAnimationFrame(draw);
-}
-
-function exitTask() {
-  task.active = false;
-  task.target = null;
-  task.rec = null;
-  if (document.pointerLockElement) document.exitPointerLock();
-  $("task").classList.remove("on");
-}
-
-function aborted() {
-  return !task.active || document.pointerLockElement !== task.canvas;
-}
-
-async function runFlick(trial, profile) {
-  const tgt = targetFor(trial, innerWidth, innerHeight);
-  task.profile = profile;
-  task.st = createState();
-  task.lastTs = null;
-  task.x = 0;
-  task.y = 0;
-  task.target = null;
-  task.feedback = null;
-  task.phase = "hold";
-  await sleep(350 + Math.random() * 400);
-  if (aborted()) return null;
-  task.x = 0;
-  task.y = 0;
-  task.phase = "go";
-  task.target = tgt;
-  const t0 = performance.now();
-  task.rec = [{ t: 0, x: 0, y: 0 }];
-  task.rec.t0 = t0;
-  const click = await new Promise((resolve) => {
-    task.onClick = resolve;
-    setTimeout(() => resolve(null), TRIAL_TIMEOUT_MS);
-  });
-  task.onClick = null;
-  const samples = task.rec;
-  task.rec = null;
-  if (aborted()) return null;
-  const tClick = click === null ? null : click - t0;
-  const hit = tClick !== null && Math.hypot(task.x - tgt.x, task.y - tgt.y) <= tgt.radius;
-  if (tClick !== null) samples.push({ t: tClick, x: task.x, y: task.y });
-  task.feedback = hit ? "hit" : "miss";
-  await sleep(180);
-  task.target = null;
-  return {
-    dir: trial.dir,
-    theta: trial.theta,
-    amp: trial.amp,
-    D: tgt.D,
-    radius: tgt.radius,
-    hit,
-    timeout: tClick === null,
-    timeToHit: tClick,
-    seg: tClick === null ? { ok: false, reason: "timeout" } : pickSeg(segmentTrial(samples, tgt)),
-    samples,
-  };
-}
-
-function pickSeg(s) {
-  return s.ok ? { ok: true, rho: s.rho, rhoMirror: s.rhoMirror, lateral: s.lateral } : { ok: false, reason: s.reason };
-}
-
-function hud(text) {
-  $("hud").textContent = text;
-}
-
-async function runTrials(kind, plan, profileFor) {
-  const session = newSession(kind);
-  try {
-    await enterTask();
-    for (let i = 0; i < plan.length; i++) {
-      hud(`${i + 1} / ${plan.length}  ·  Esc to stop`);
-      const res = await runFlick(plan[i], profileFor(plan[i]));
-      if (!res) break;
-      session.trials.push({ ...res, cond: plan[i].cond, block: plan[i].block });
-    }
-  } catch (err) {
-    alert(`Could not start: ${err.message}. Click the page first, and use a Chromium-based browser for raw input.`);
-  } finally {
-    exitTask();
-  }
-  finishSession(session);
-}
+let arena;
 
 function newSession(kind) {
-  return {
-    id: `${Date.now()}`,
-    kind,
-    sim: SIM,
-    profileKey: profileKey(app.profile),
-    profile: { ...app.profile },
-    settings: { ...app.settings },
-    trials: [],
-    runs: [],
-  };
+  return { id: `${Date.now()}`, kind, sim: SIM, calibKey: calibKey(), profile: { ...app.profile }, settings: { ...app.settings }, trials: [], runs: [] };
 }
 
-function finishSession(session) {
+function finish(session) {
   if (session.trials.length || session.runs.length) app.sessions.push(session);
   save();
   renderAll();
 }
 
-// Each mini-block visits every direction once with distances rotating, so both conditions get
-// the same direction and distance mix.
 function abPlan() {
   const seed = Date.now() & 0xffff;
   return AB_ORDER.flatMap((cond, b) =>
@@ -428,95 +457,32 @@ function abPlan() {
   );
 }
 
-// The control keeps the profile's direction-averaged gain (a0), so A and B differ only in
-// directional shape and switching blocks does not force a global re-adaptation.
-function controlProfile() {
-  return { ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms };
-}
+const profileFor = (t) => (t.cond === "A" ? controlProfile() : app.profile);
 
-function profileForCond(trial) {
-  return trial.cond === "A" ? controlProfile() : app.profile;
-}
-
-async function runTracking() {
-  const session = newSession("tracking");
+async function runReal(kind, plan, pf, label) {
+  const session = newSession(kind);
   try {
-    await enterTask();
-    for (const [i, cond] of ["A", "B", "B", "A"].entries()) {
-      hud(`Tracking ${i + 1} / 4: keep the crosshair on the moving target  ·  Esc to stop`);
-      const run = await trackRun(cond === "A" ? controlProfile() : app.profile);
-      if (!run) break;
-      session.runs.push({ cond, ...run });
-    }
+    const res = await arena.runFlicks({ plan, profileFor: pf, settings: app.settings, k: unitsPerCount(), label });
+    session.trials = res.trials;
+    session.raw = res.raw;
   } catch (err) {
-    alert(`Could not start: ${err.message}`);
-  } finally {
-    exitTask();
+    $(kind === "ab" ? "abResult" : "analysis").innerHTML = verdictHtml("bad", "Could not start", `${esc(err.message)}. Click inside the page first, and use Chrome or Edge.`);
   }
-  finishSession(session);
+  finish(session);
 }
-
-async function trackRun(profile) {
-  task.profile = profile;
-  task.st = createState();
-  task.lastTs = null;
-  const S = 0.22 * Math.min(innerWidth, innerHeight);
-  const comps = [0.13, 0.21, 0.34, 0.47].map((f) => ({
-    f,
-    ax: S * (0.4 + 0.6 * Math.random()) / 2,
-    ay: S * (0.4 + 0.6 * Math.random()) / 2,
-    px: 2 * Math.PI * Math.random(),
-    py: 2 * Math.PI * Math.random(),
-  }));
-  const pos = (t) => ({
-    x: comps.reduce((a, c) => a + c.ax * Math.sin(2 * Math.PI * c.f * t + c.px), 0),
-    y: comps.reduce((a, c) => a + c.ay * Math.sin(2 * Math.PI * c.f * t + c.py), 0),
-  });
-  const start = pos(0);
-  task.x = start.x;
-  task.y = start.y;
-  task.phase = "track";
-  task.target = { ...start, radius: 12 };
-  const t0 = performance.now();
-  const windows = [];
-  let acc = 0;
-  let n = 0;
-  let w = 2;
-  while (performance.now() - t0 < 10000) {
-    await new Promise((r) => requestAnimationFrame(r));
-    if (aborted()) return null;
-    const t = (performance.now() - t0) / 1000;
-    const p = pos(t);
-    task.target = { ...p, radius: 12 };
-    if (t < 2) continue;
-    acc += (task.x - p.x) ** 2 + (task.y - p.y) ** 2;
-    n++;
-    if (t >= w + 1) {
-      windows.push(Math.sqrt(acc / Math.max(1, n)));
-      acc = 0;
-      n = 0;
-      w += 1;
-    }
-  }
-  task.target = null;
-  await sleep(600);
-  return { windows };
-}
-
-// ---------- simulation mode ----------
 
 function simUser() {
-  if (!app.simUser) app.simUser = createSimUser({ seed: 7, biasCoef: [0.05, -0.03, 0.03, 0.02], noiseSd: 0.1, adaptRate: 0.05 });
+  if (!app.simUser) app.simUser = createSimUser({ seed: 7, biasCoef: [0.05, -0.03, 0.03, 0.02], oddCoef: [0.03, 0], noiseSd: 0.1, adaptRate: 0.05 });
   return app.simUser;
 }
 
-function simTrials(kind, plan, profileFor) {
+function runSim(kind, plan, pf) {
   const session = newSession(kind);
-  const W = 1600;
-  const H = 900;
+  const k = unitsPerCount();
   for (const trial of plan) {
-    const tgt = targetFor(trial, W, H);
-    const res = runSimTrial(simUser(), tgt, { sens: app.settings.sens, radius: tgt.radius, profile: profileFor(trial) });
+    const tgt = app.settings.mode === "fps" ? fpsTargetFor(trial) : targetFor(trial, 1600, 900);
+    const res = runSimTrial(simUser(), tgt, { sens: k, radius: tgt.radius, profile: pf(trial) });
+    const seg = segmentTrial(res.samples, tgt);
     session.trials.push({
       dir: trial.dir,
       theta: trial.theta,
@@ -528,86 +494,121 @@ function simTrials(kind, plan, profileFor) {
       hit: res.hit,
       timeout: false,
       timeToHit: res.timeToHit,
-      seg: pickSeg(segmentTrial(res.samples, tgt)),
-      samples: res.samples,
+      seg: seg.ok ? { ok: true, rho: seg.rho, rhoMirror: seg.rhoMirror, lateral: seg.lateral, onsetMs: seg.onsetMs } : { ok: false, reason: seg.reason },
     });
   }
-  finishSession(session);
+  finish(session);
 }
 
-// ---------- wiring ----------
+// ---------- tooltip ----------
+
+function bindTooltip() {
+  const tip = $("tip");
+  const show = (el, x, y) => {
+    tip.textContent = el.getAttribute("data-tip");
+    tip.classList.add("on");
+    const w = tip.offsetWidth;
+    tip.style.left = `${Math.min(innerWidth - w - 8, x + 14)}px`;
+    tip.style.top = `${y + 16}px`;
+  };
+  const hide = () => tip.classList.remove("on");
+  document.addEventListener("pointermove", (e) => {
+    const el = e.target.closest?.("[data-tip]");
+    if (el) show(el, e.clientX, e.clientY);
+    else hide();
+  });
+  document.addEventListener("focusin", (e) => {
+    const el = e.target.closest?.("[data-tip]");
+    if (!el) return hide();
+    const r = el.getBoundingClientRect();
+    show(el, r.right, r.top);
+  });
+  document.addEventListener("focusout", hide);
+}
+
+// ---------- theme ----------
+
+function bindTheme() {
+  const order = ["system", "light", "dark"];
+  let cur = "system";
+  try {
+    cur = localStorage.getItem(THEME_KEY) || "system";
+  } catch {
+    /* default to system */
+  }
+  const apply = () => {
+    if (cur === "system") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = cur;
+    $("themeBtn").textContent = `Theme: ${cur}`;
+  };
+  apply();
+  $("themeBtn").addEventListener("click", () => {
+    cur = order[(order.indexOf(cur) + 1) % order.length];
+    try {
+      localStorage.setItem(THEME_KEY, cur);
+    } catch {
+      /* not persisted */
+    }
+    apply();
+  });
+}
+
+// ---------- init ----------
 
 function init() {
   load();
-  task.canvas = $("canvas");
-  task.ctx = task.canvas.getContext("2d");
+  arena = createArena({ root: $("arena"), canvas: $("canvas"), hud: $("hud"), progress: $("arenaProgress") });
   if (SIM) {
     $("simBanner").hidden = false;
-    $("btnCalib").textContent = "Simulate calibration block";
-    $("btnAB").textContent = "Simulate A/B session";
-    $("btnTrack").disabled = true;
-    $("btnTrack").title = "Tracking is not simulated";
+    $("simBadge").hidden = false;
+    $("btnCalib").textContent = "Simulate a block";
+    $("btnAB").textContent = "Simulate an A/B session";
   }
-  window.addEventListener("resize", () => task.active && resizeCanvas());
-  document.addEventListener("pointermove", onPointerMove);
-  document.addEventListener("mousedown", (e) => {
-    if (task.active && e.button === 0 && task.onClick) task.onClick(performance.now());
-  });
-  document.addEventListener("pointerlockchange", () => {
-    if (!document.pointerLockElement && task.active) {
-      task.active = false;
-      if (task.onClick) task.onClick(null);
-    }
-  });
-  const num = (id, key, min) =>
-    $(id).addEventListener("change", () => {
-      const v = Number($(id).value);
-      if (Number.isFinite(v) && v >= min) app.settings[key] = v;
-      save();
-      renderAll();
-    });
-  num("dpi", "dpi", 100);
-  num("sens", "sens", 0.05);
-  $("anchor").addEventListener("change", () => {
-    app.settings.anchor = $("anchor").value;
-    save();
-  });
+  bindSetup();
+  bindTooltip();
+  bindTheme();
+  document.querySelectorAll("nav.steps [data-step]").forEach((b) => b.addEventListener("click", () => go(b.dataset.step)));
+  document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   $("btnCalib").addEventListener("click", () => {
     const plan = makeBlock(1, Date.now() & 0xffff);
-    if (SIM) simTrials("calibrate", plan, () => app.profile);
-    else runTrials("calibrate", plan, () => app.profile);
+    if (SIM) runSim("calibrate", plan, () => app.profile);
+    else runReal("calibrate", plan, () => app.profile, "Calibration");
   });
   $("btnAnalyze").addEventListener("click", runAnalysis);
   $("btnAccept").addEventListener("click", () => {
     if (!app.proposal) return;
     app.profile = app.proposal.profile;
     app.proposal = null;
-    $("analysis").innerHTML = `<p>Profile accepted. Run another calibration block to measure the residual, then an A/B session.</p>`;
+    $("analysis").innerHTML = verdictHtml("good", "Profile updated", "Play another block to measure what is left, then analyze again.");
+    $("analysisFacts").innerHTML = "";
     save();
     renderAll();
   });
   $("btnResetProfile").addEventListener("click", () => {
     app.profile = { ...defaultProfile(), lambda: lambdaForDpi(app.settings.dpi) };
     app.proposal = null;
+    $("analysis").innerHTML = "";
+    $("analysisFacts").innerHTML = "";
     save();
     renderAll();
   });
   $("btnAB").addEventListener("click", () => {
     const plan = abPlan();
-    if (SIM) simTrials("ab", plan, profileForCond);
-    else runTrials("ab", plan, profileForCond);
+    if (SIM) runSim("ab", plan, profileFor);
+    else runReal("ab", plan, profileFor, "A/B test");
   });
-  $("btnTrack").addEventListener("click", runTracking);
-  $("btnConf").addEventListener("click", () => download("profile.conf", `# DirGain profile, device coordinates (y down)\n${toConf(app.profile)}`));
-  $("btnJson").addEventListener("click", () =>
-    download(
-      "profile.json",
-      JSON.stringify({ format: "dirgain-profile", version: 1, profile: app.profile, settings: app.settings, created: new Date().toISOString() }, null, 2),
-      "application/json",
-    ),
-  );
+  $("btnTrack").addEventListener("click", async () => {
+    const session = newSession("tracking");
+    try {
+      const res = await arena.runTracking({ conds: ["A", "B", "B", "A"], profileFor: (c) => (c === "A" ? controlProfile() : app.profile), settings: app.settings, k: unitsPerCount() });
+      session.runs = res.runs;
+    } catch (err) {
+      $("abResult").innerHTML = verdictHtml("bad", "Could not start", esc(err.message));
+    }
+    finish(session);
+  });
   $("btnData").addEventListener("click", () =>
-    download("dirgain-data.json", JSON.stringify({ format: "dirgain-data", version: 1, ...app, simUser: undefined, proposal: undefined }), "application/json"),
+    download("dirgain-data.json", JSON.stringify({ format: "dirgain-data", version: 2, settings: app.settings, profile: app.profile, sessions: app.sessions }), "application/json"),
   );
   $("importData").addEventListener("change", async (e) => {
     const f = e.target.files?.[0];
@@ -621,7 +622,7 @@ function init() {
       save();
       renderAll();
     } catch (err) {
-      alert(`Import failed: ${err.message}`);
+      $("dataBody").insertAdjacentHTML("afterbegin", verdictHtml("bad", "Import failed", esc(err.message)));
     }
   });
   $("btnClear").addEventListener("click", () => {
@@ -630,8 +631,7 @@ function init() {
     save();
     renderAll();
   });
-  renderAll();
-  save();
+  go(app.step);
 }
 
 init();
