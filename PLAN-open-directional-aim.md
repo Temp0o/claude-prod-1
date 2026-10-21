@@ -36,6 +36,8 @@ What we don't know:
 
 ## 4. Design
 
+> The detailed, simulation-checked algorithm is in `ALGORITHM-spec.md`. It supersedes 4.1-4.3 where they differ (log-domain gain, statistical gate, anchor choice, closed-loop update).
+
 ### 4.1 The transform ("dirgain")
 Per mouse report `(dx, dy)`, output `g(θ)·(dx, dy)` with
 
@@ -79,7 +81,7 @@ Versioned JSON: harmonic coefficients, clamp, device id, DPI, in-game sensitivit
 
 ## 6. Roadmap and exit criteria
 
-0. **Spec and simulator.** A Python notebook with simulated users that have a known `g_true(θ)` plus noise. Exit: the fitter recovers it (target: RMS gain error under 2% at about 400 trials).
+0. **Spec and simulator.** A Python notebook with simulated users that have a known `g_true(θ)` plus noise. Exit: the fitter recovers it. Done in `sim/`: the earlier "under 2% at about 400 trials" target was not reachable at realistic noise, and the measured numbers are in `ALGORITHM-spec.md` section 3.
 1. **Browser calibrator and A/B.** This is the real go/no-go. Exit: your paired CI shows a benefit, or we stop here.
 2. **`dirgain` core library** in portable C, with tests: identity at `g=1`, π-periodicity, no residual loss (property tests), fixed-point versus float agreement, and benchmarks.
 3. **Linux daemon.** Measure added latency (compare evdev input timestamps with uinput output).
