@@ -1,4 +1,5 @@
-import { createState, step } from "../core/dirgain.js";
+import { createState } from "../core/dirgain.js";
+import { applyStep } from "./rawaccel.js";
 import { harmonicRow, mulberry32 } from "./analysis.js";
 
 function gauss(r) {
@@ -73,7 +74,7 @@ export function runSimTrial(user, target, { sens, radius, profile, maxSubmovemen
     for (const [dx, dy] of submovement(user, ex, ey, sens, k === 0)) {
       t += 1;
       if (dx === 0 && dy === 0) continue;
-      const [ox, oy] = step(profile, st, dx, dy, t - lastT);
+      const [ox, oy] = applyStep(profile, st, dx, dy, t - lastT);
       lastT = t;
       x += ox * sens;
       y += oy * sens;

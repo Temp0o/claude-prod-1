@@ -1,4 +1,5 @@
-import { createState, step } from "../core/dirgain.js";
+import { createState } from "../core/dirgain.js";
+import { applyStep } from "./rawaccel.js";
 import { segmentTrial } from "./analysis.js";
 import { fpsTargetFor, targetFor } from "./protocol.js";
 
@@ -79,7 +80,7 @@ export function createArena({ root, canvas, hud, progress }) {
       if (!dx && !dy) continue;
       const dt = s.lastTs === null ? 1 : ev.timeStamp - s.lastTs;
       s.lastTs = ev.timeStamp;
-      const [ox, oy] = step(s.profile, s.st, dx, dy, dt);
+      const [ox, oy] = applyStep(s.profile, s.st, dx, dy, dt);
       s.x += ox * s.k;
       s.y += oy * s.k;
       if (s.mode === "fps") s.y = Math.max(-85, Math.min(85, s.y));

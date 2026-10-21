@@ -97,6 +97,7 @@
   .top .spacer { flex: 1; }
   .badge { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--accent-wash); color: var(--ink); }
   .themebtn { border: 1px solid var(--line); background: transparent; color: var(--ink-2); border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .themebtn[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent-text); color: var(--ink); }
 
   /* shell */
   .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
@@ -265,7 +266,7 @@
   </div>
   <p class="tag">Per-direction mouse gain, measured on you, applied to any mouse.</p>
   <span class="spacer"></span>
-  <span class="badge" id="simBadge" hidden>Simulation</span>
+  <button class="themebtn" id="demoBtn" type="button" aria-pressed="false">Demo mode</button>
   <button class="themebtn" id="themeBtn" type="button" aria-label="Switch color theme">Theme</button>
 </header>
 <div class="shell">
@@ -280,7 +281,7 @@
   </nav>
 
   <main>
-    <p class="banner" id="simBanner" hidden>Simulation mode: a synthetic player stands in for your mouse, so you can see the whole flow. Remove <span class="mono">?sim=1</span> from the address to calibrate yourself.</p>
+    <p class="banner" id="simBanner" hidden>Demo mode: a simulated player stands in for your mouse, so you can see the whole flow. Its data is kept apart from yours. Turn Demo mode off to calibrate yourself.</p>
     <section class="panel" id="panel-setup" aria-labelledby="h-setup">
       <p class="eyebrow">Step 1</p>
       <h1 id="h-setup">Match your game</h1>
@@ -341,6 +342,11 @@
       <p class="eyebrow">Step 3</p>
       <h1 id="h-val">Prove it helps</h1>
       <p class="lede">A blind test: blocks with and without your profile's directional shape, in an order you are not told. Both keep the same average speed, so only the direction effect is tested. Keep the profile only if it makes you faster.</p>
+      <h2>What to test</h2>
+      <div class="choice" role="radiogroup" aria-label="What to test">
+        <label><input type="radio" name="variant" value="full"><b>Full profile</b><span>Exactly what dirgain.exe applies.</span></label>
+        <label><input type="radio" name="variant" value="rawaccel"><b>Raw Accel version</b><span id="raShare">Exactly what Raw Accel can apply.</span></label>
+      </div>
       <div class="meterrow"><div id="abMeter"></div><span class="num" id="abNum"></span></div>
       <div class="actions">
         <button class="btn primary" type="button" id="btnAB">Start an A/B session</button>

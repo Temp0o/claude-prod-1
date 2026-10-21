@@ -97,6 +97,7 @@
   .top .spacer { flex: 1; }
   .badge { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--accent-wash); color: var(--ink); }
   .themebtn { border: 1px solid var(--line); background: transparent; color: var(--ink-2); border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .themebtn[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent-text); color: var(--ink); }
 
   /* shell */
   .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
@@ -265,7 +266,7 @@
   </div>
   <p class="tag">Per-direction mouse gain, measured on you, applied to any mouse.</p>
   <span class="spacer"></span>
-  <span class="badge" id="simBadge" hidden>Simulation</span>
+  <button class="themebtn" id="demoBtn" type="button" aria-pressed="false">Demo mode</button>
   <button class="themebtn" id="themeBtn" type="button" aria-label="Switch color theme">Theme</button>
 </header>
 <div class="shell">
@@ -280,7 +281,7 @@
   </nav>
 
   <main>
-    <p class="banner" id="simBanner" hidden>Simulation mode: a synthetic player stands in for your mouse, so you can see the whole flow. Remove <span class="mono">?sim=1</span> from the address to calibrate yourself.</p>
+    <p class="banner" id="simBanner" hidden>Demo mode: a simulated player stands in for your mouse, so you can see the whole flow. Its data is kept apart from yours. Turn Demo mode off to calibrate yourself.</p>
     <section class="panel" id="panel-setup" aria-labelledby="h-setup">
       <p class="eyebrow">Step 1</p>
       <h1 id="h-setup">Match your game</h1>
@@ -341,6 +342,11 @@
       <p class="eyebrow">Step 3</p>
       <h1 id="h-val">Prove it helps</h1>
       <p class="lede">A blind test: blocks with and without your profile's directional shape, in an order you are not told. Both keep the same average speed, so only the direction effect is tested. Keep the profile only if it makes you faster.</p>
+      <h2>What to test</h2>
+      <div class="choice" role="radiogroup" aria-label="What to test">
+        <label><input type="radio" name="variant" value="full"><b>Full profile</b><span>Exactly what dirgain.exe applies.</span></label>
+        <label><input type="radio" name="variant" value="rawaccel"><b>Raw Accel version</b><span id="raShare">Exactly what Raw Accel can apply.</span></label>
+      </div>
       <div class="meterrow"><div id="abMeter"></div><span class="num" id="abNum"></span></div>
       <div class="actions">
         <button class="btn primary" type="button" id="btnAB">Start an A/B session</button>
@@ -1007,6 +1013,47 @@ function bootstrapDiff(a, b, iters = 2000, seed = 1) {
   };
 }
 
+// ---- web/rawaccel.js
+
+
+// Raw Accel's output stage without acceleration, mirrored from its source
+// (common/rawaccel.hpp modify(), driver/driver.cpp carry): per-axis scaling, Y/X ratio,
+// L/R ratio when moving left, U/D ratio when moving up, truncation toward zero with carry.
+function rawAccelProfile(fit) {
+  return { kind: "rawaccel", sens: fit.sens, yx: fit.yx, lr: fit.lr, ud: fit.ud };
+}
+
+function rawAccelStep(p, st, dx, dy) {
+  let fx = dx * p.sens;
+  let fy = dy * p.sens * p.yx;
+  if (fx < 0) fx *= p.lr;
+  if (fy < 0) fy *= p.ud;
+  fx += st.cx;
+  fy += st.cy;
+  const ox = Math.trunc(fx) || 0;
+  const oy = Math.trunc(fy) || 0;
+  st.cx = fx - ox;
+  st.cy = fy - oy;
+  return [ox, oy];
+}
+
+// Direction-averaged log gain, used to give the A/B control the same overall speed.
+function rawAccelMeanLogGain(p, n = 360) {
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const t = (2 * Math.PI * i) / n;
+    const x = Math.cos(t) * (Math.cos(t) < 0 ? p.lr : 1);
+    const y = Math.sin(t) * p.yx * (Math.sin(t) < 0 ? p.ud : 1);
+    s += Math.log(p.sens * Math.hypot(x, y));
+  }
+  return s / n;
+}
+
+// One entry point for the arena and the simulator: DirGain profiles or Raw Accel stand-ins.
+function applyStep(p, st, dx, dy, dtMs) {
+  return p.kind === "rawaccel" ? rawAccelStep(p, st, dx, dy) : step(p, st, dx, dy, dtMs);
+}
+
 // ---- web/protocol.js
 
 
@@ -1053,6 +1100,7 @@ function targetFor(trial, viewW, viewH) {
 }
 
 // ---- web/arena.js
+
 
 
 
@@ -1134,7 +1182,7 @@ function createArena({ root, canvas, hud, progress }) {
       if (!dx && !dy) continue;
       const dt = s.lastTs === null ? 1 : ev.timeStamp - s.lastTs;
       s.lastTs = ev.timeStamp;
-      const [ox, oy] = step(s.profile, s.st, dx, dy, dt);
+      const [ox, oy] = applyStep(s.profile, s.st, dx, dy, dt);
       s.x += ox * s.k;
       s.y += oy * s.k;
       if (s.mode === "fps") s.y = Math.max(-85, Math.min(85, s.y));
@@ -1563,6 +1611,7 @@ function cm360(settings) {
 
 
 
+
 function gauss(r) {
   let u = 0;
   while (u === 0) u = r();
@@ -1635,7 +1684,7 @@ function runSimTrial(user, target, { sens, radius, profile, maxSubmovements = 6 
     for (const [dx, dy] of submovement(user, ex, ey, sens, k === 0)) {
       t += 1;
       if (dx === 0 && dy === 0) continue;
-      const [ox, oy] = step(profile, st, dx, dy, t - lastT);
+      const [ox, oy] = applyStep(profile, st, dx, dy, t - lastT);
       lastT = t;
       x += ox * sens;
       y += oy * sens;
@@ -1664,7 +1713,9 @@ function runSimTrial(user, target, { sens, radius, profile, maxSubmovements = 6 
 
 
 
-const SIM = new URLSearchParams(location.search).has("sim");
+
+const SIM_FROM_URL = new URLSearchParams(location.search).has("sim");
+let SIM = false;
 const STORE_KEY = "dirgain.v2";
 const THEME_KEY = "dirgain.theme";
 const AB_ORDER = ["A", "B", "B", "A", "B", "A", "A", "B"];
@@ -1673,8 +1724,10 @@ const AB_GOAL = 280;
 const $ = (id) => document.getElementById(id);
 
 const app = {
-  settings: { game: "valorant", sens: 0.35, cm360: 34, dpi: 800, fov: 103, mode: "fps", anchor: "horizontal", allowOdd: true, sens2d: 1 },
+  settings: { game: "valorant", sens: 0.35, cm360: 34, dpi: 800, fov: 103, mode: "fps", anchor: "horizontal", allowOdd: true, sens2d: 1, variant: "full" },
   profile: defaultProfile(),
+  realProfile: null,
+  demoProfile: defaultProfile(),
   proposal: null,
   lastResult: null,
   sessions: [],
@@ -1687,7 +1740,8 @@ const app = {
 function save() {
   try {
     const sessions = app.sessions.map((s) => ({ ...s, trials: s.trials?.map(({ samples, ...t }) => t) }));
-    localStorage.setItem(STORE_KEY, JSON.stringify({ settings: app.settings, profile: app.profile, sessions, step: app.step }));
+    const profile = SIM ? app.realProfile : app.profile;
+    localStorage.setItem(STORE_KEY, JSON.stringify({ settings: app.settings, profile, sessions, step: app.step }));
     $("storeNote").textContent = `${app.sessions.length} session(s) saved in this browser. Traces are kept only until you close the tab; download raw data to keep them.`;
   } catch {
     $("storeNote").textContent = "This browser blocked local storage. Download your data before closing the tab.";
@@ -1725,7 +1779,10 @@ const mean = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN);
 
 function sessionsOf(kind) {
   const key = calibKey();
-  return app.sessions.filter((s) => s.kind === kind && s.calibKey === key && !!s.sim === SIM);
+  const variant = app.settings.variant;
+  return app.sessions.filter(
+    (s) => s.kind === kind && s.calibKey === key && !!s.sim === SIM && (kind === "calibrate" || (s.variant ?? "full") === variant),
+  );
 }
 
 function calibTrials() {
@@ -1743,8 +1800,16 @@ function directionLabels() {
     : { right: "right", left: "left", up: "up", down: "down" };
 }
 
+// What the A/B "with" condition applies: the full DirGain profile, or Raw Accel's best fit to it.
+function testProfile() {
+  return app.settings.variant === "rawaccel" ? rawAccelProfile(rawAccelFit(app.profile)) : app.profile;
+}
+
+// The A/B control keeps the tested profile's direction-averaged gain.
 function controlProfile() {
-  return { ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms };
+  const p = testProfile();
+  const a0 = p.kind === "rawaccel" ? rawAccelMeanLogGain(p) : p.a0;
+  return { ...defaultProfile(), a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms };
 }
 
 // ---------- step navigation ----------
@@ -1945,6 +2010,8 @@ function renderValidate() {
   const n = Math.min(by("A").length, by("B").length);
   $("abMeter").innerHTML = meter(n, AB_GOAL);
   $("abNum").textContent = `${n} / ${AB_GOAL} flicks per condition`;
+  document.querySelectorAll('input[name="variant"]').forEach((r) => (r.checked = r.value === app.settings.variant));
+  $("raShare").textContent = `Exactly what Raw Accel can apply: ${(100 * rawAccelFit(app.profile).captured).toFixed(0)}% of your profile's pattern.`;
   const flat = profileKey(app.profile) === profileKey({ ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms });
   $("btnAB").disabled = flat;
   $("btnTrack").disabled = flat || SIM;
@@ -2097,7 +2164,7 @@ function renderAll() {
 let arena;
 
 function newSession(kind) {
-  return { id: `${Date.now()}`, kind, sim: SIM, calibKey: calibKey(), profile: { ...app.profile }, settings: { ...app.settings }, trials: [], runs: [] };
+  return { id: `${Date.now()}`, kind, sim: SIM, variant: app.settings.variant, calibKey: calibKey(), profile: { ...app.profile }, settings: { ...app.settings }, trials: [], runs: [] };
 }
 
 function finish(session) {
@@ -2115,7 +2182,7 @@ function abPlan() {
   );
 }
 
-const profileFor = (t) => (t.cond === "A" ? controlProfile() : app.profile);
+const profileFor = (t) => (t.cond === "A" ? controlProfile() : testProfile());
 
 async function runReal(kind, plan, pf, label) {
   const session = newSession(kind);
@@ -2211,17 +2278,43 @@ function bindTheme() {
   });
 }
 
+// ---------- demo mode ----------
+
+// Demo mode swaps in its own profile so nothing done in the demo touches the real one.
+function setSim(on) {
+  if (on && !SIM) {
+    app.realProfile = app.profile;
+    app.profile = app.demoProfile;
+  } else if (!on && SIM) {
+    app.demoProfile = app.profile;
+    app.profile = app.realProfile;
+  }
+  SIM = on;
+  app.proposal = null;
+  $("analysis").innerHTML = "";
+  $("analysisFacts").innerHTML = "";
+  $("simBanner").hidden = !on;
+  $("demoBtn").setAttribute("aria-pressed", String(on));
+  $("demoBtn").textContent = on ? "Demo mode: on" : "Demo mode";
+  $("btnCalib").textContent = on ? "Simulate a block" : "Start a block";
+  $("btnAB").textContent = on ? "Simulate an A/B session" : "Start an A/B session";
+  renderAll();
+}
+
 // ---------- init ----------
 
 function init() {
   load();
   arena = createArena({ root: $("arena"), canvas: $("canvas"), hud: $("hud"), progress: $("arenaProgress") });
-  if (SIM) {
-    $("simBanner").hidden = false;
-    $("simBadge").hidden = false;
-    $("btnCalib").textContent = "Simulate a block";
-    $("btnAB").textContent = "Simulate an A/B session";
-  }
+  setSim(SIM_FROM_URL);
+  $("demoBtn").addEventListener("click", () => setSim(!SIM));
+  document.querySelectorAll('input[name="variant"]').forEach((r) =>
+    r.addEventListener("change", () => {
+      app.settings.variant = r.value;
+      save();
+      renderAll();
+    }),
+  );
   bindSetup();
   bindTooltip();
   bindTheme();
@@ -2258,7 +2351,7 @@ function init() {
   $("btnTrack").addEventListener("click", async () => {
     const session = newSession("tracking");
     try {
-      const res = await arena.runTracking({ conds: ["A", "B", "B", "A"], profileFor: (c) => (c === "A" ? controlProfile() : app.profile), settings: app.settings, k: unitsPerCount() });
+      const res = await arena.runTracking({ conds: ["A", "B", "B", "A"], profileFor: (c) => (c === "A" ? controlProfile() : testProfile()), settings: app.settings, k: unitsPerCount() });
       session.runs = res.runs;
     } catch (err) {
       $("abResult").innerHTML = verdictHtml("bad", "Could not start", esc(err.message));
@@ -2266,7 +2359,7 @@ function init() {
     finish(session);
   });
   $("btnData").addEventListener("click", () =>
-    download("dirgain-data.json", JSON.stringify({ format: "dirgain-data", version: 2, settings: app.settings, profile: app.profile, sessions: app.sessions }), "application/json"),
+    download("dirgain-data.json", JSON.stringify({ format: "dirgain-data", version: 2, settings: app.settings, profile: SIM ? app.realProfile : app.profile, sessions: app.sessions }), "application/json"),
   );
   $("importData").addEventListener("change", async (e) => {
     const f = e.target.files?.[0];
