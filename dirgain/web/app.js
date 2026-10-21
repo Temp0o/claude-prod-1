@@ -8,6 +8,8 @@ import { DIRECTIONS, fpsTargetFor, makeBlock, targetFor } from "./protocol.js";
 import { createSimUser, runSimTrial } from "./simuser.js";
 
 const SIM_FROM_URL = new URLSearchParams(location.search).has("sim");
+// Set by the artifact build: no downloads, no own theme switch, opens with demo data.
+const ARTIFACT = !!globalThis.DIRGAIN_ARTIFACT;
 let SIM = false;
 const STORE_KEY = "dirgain.v2";
 const THEME_KEY = "dirgain.theme";
@@ -51,6 +53,25 @@ function load() {
     if (s.step) app.step = s.step;
   } catch {
     /* storage blocked or corrupt: start fresh */
+  }
+}
+
+const confText = () => `# DirGain profile (device coordinates, y down)\n${toConf(app.profile)}`;
+
+// Clipboard writes must happen inside the click; when refused, select the text instead.
+function copyText(text, preId, btnId) {
+  const done = () => ($(btnId).textContent = "Copied");
+  const select = () => {
+    const r = document.createRange();
+    r.selectNodeContents($(preId));
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
+    $(btnId).textContent = "Selected, press Ctrl+C";
+  };
+  try {
+    navigator.clipboard.writeText(text).then(done, select);
+  } catch {
+    select();
   }
 }
 
@@ -261,7 +282,7 @@ function runAnalysis() {
   }
   const fmtP = (p) => (p < 0.001 ? "< 0.001" : p.toFixed(3));
   const gateRow = (label, g) =>
-    g ? `<tr><td>${label}</td><td class="num">p ${fmtP(g.p)}</td><td>${g.pass ? '<span class="ok">✓ real</span>' : '<span class="muted">not shown</span>'}</td></tr>` : "";
+    g ? `<tr><td>${label}</td><td class="num">p ${fmtP(g.p)}</td><td>${g.pass ? '<span class="ok">✓ real</span>' : '<span class="muted">not proven</span>'}</td></tr>` : "";
   const cons = res.consistency;
   $("analysisFacts").innerHTML = `
     <table class="facts">
@@ -402,23 +423,16 @@ function renderInstall() {
           <li>Put <span class="mono">dirgain.exe</span> (from <span class="mono">dirgain/dist/windows</span> in the repository) and your <span class="mono">profile.conf</span> in one folder.</li>
           <li>Run <span class="mono">dirgain.exe profile.conf</span>. <span class="mono">Ctrl+Alt+F8</span> turns it on and off; saving a new profile.conf reloads it.</li>
         </ol>
-        <div class="actions"><button class="btn primary" type="button" id="btnConf">Download profile.conf</button><button class="btn quiet" type="button" id="btnJson">profile.json</button></div>
+        <div class="actions dl"><button class="btn primary" type="button" id="btnConf">Download profile.conf</button><button class="btn quiet" type="button" id="btnJson">profile.json</button></div>
+        <p class="small muted">Or copy it into a text file named <span class="mono">profile.conf</span>:</p>
+        <pre class="code" id="confText">${esc(confText())}</pre>
+        <div class="actions"><button class="btn" type="button" id="btnCopyConf">Copy profile.conf</button></div>
         <div class="callout"><b>Anti-cheat warning.</b> Kernel input filters like Interception are blocked or flagged by some anti-cheat systems. Check your game's rules first; when in doubt, use the Raw Accel route.</div>
       </section>
     </div>`;
-  $("btnCopyRa").addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(json);
-      $("btnCopyRa").textContent = "Copied";
-    } catch {
-      const r = document.createRange();
-      r.selectNodeContents($("raJson"));
-      getSelection().removeAllRanges();
-      getSelection().addRange(r);
-      $("btnCopyRa").textContent = "Selected, press Ctrl+C";
-    }
-  });
-  $("btnConf").addEventListener("click", () => download("profile.conf", `# DirGain profile (device coordinates, y down)\n${toConf(app.profile)}`));
+  $("btnCopyRa").addEventListener("click", () => copyText(json, "raJson", "btnCopyRa"));
+  $("btnCopyConf").addEventListener("click", () => copyText(confText(), "confText", "btnCopyConf"));
+  $("btnConf").addEventListener("click", () => download("profile.conf", confText()));
   $("btnJson").addEventListener("click", () =>
     download("profile.json", JSON.stringify({ format: "dirgain-profile", version: 2, profile: app.profile, settings: app.settings, created: new Date().toISOString() }, null, 2), "application/json"),
   );
@@ -547,6 +561,10 @@ function bindTooltip() {
 // ---------- theme ----------
 
 function bindTheme() {
+  if (ARTIFACT) {
+    $("themeBtn").hidden = true;
+    return;
+  }
   const order = ["system", "light", "dark"];
   let cur = "system";
   try {
@@ -669,12 +687,32 @@ function init() {
       $("dataBody").insertAdjacentHTML("afterbegin", verdictHtml("bad", "Import failed", esc(err.message)));
     }
   });
+  let armed = null;
   $("btnClear").addEventListener("click", () => {
-    if (!confirm("Delete all sessions stored in this browser?")) return;
+    if (!armed) {
+      $("btnClear").textContent = "Click again to delete everything";
+      armed = setTimeout(() => {
+        armed = null;
+        $("btnClear").textContent = "Delete all sessions";
+      }, 4000);
+      return;
+    }
+    clearTimeout(armed);
+    armed = null;
+    $("btnClear").textContent = "Deleted";
     app.sessions = [];
     save();
     renderAll();
   });
+  if (ARTIFACT) document.documentElement.classList.add("artifact");
+  if (ARTIFACT && !app.sessions.length) {
+    setSim(true);
+    for (let i = 0; i < 6; i++) runSim("calibrate", makeBlock(1, 1000 + i), () => app.profile);
+    app.step = "calibrate";
+    go("calibrate");
+    runAnalysis();
+    return;
+  }
   go(app.step);
 }
 

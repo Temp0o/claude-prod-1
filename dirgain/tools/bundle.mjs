@@ -36,3 +36,21 @@ const out = html.replace(tag, () => `<script type="module">\n${chunks.join("\n")
 mkdirSync(join(root, "dist"), { recursive: true });
 writeFileSync(join(root, "dist", "dirgain-calibrator.html"), out);
 console.log(`wrote dist/dirgain-calibrator.html from ${order.length} modules`);
+
+// --artifact <path>: the same page for the claude.ai artifact viewer, which supplies the
+// document wrapper itself and cannot download files.
+const ai = process.argv.indexOf("--artifact");
+if (ai > 0) {
+  const artifact = out
+    .replace(/<!doctype html>\s*/i, "")
+    .replace(/<html[^>]*>\s*/i, "")
+    .replace(/<\/?head>\s*/gi, "")
+    .replace(/<\/?body>\s*/gi, "")
+    .replace(/<\/html>\s*/i, "")
+    .replace(/<meta charset="utf-8">\s*/i, "")
+    .replace(/<meta name="viewport"[^>]*>\s*/i, "")
+    .replace(/<link rel="icon"[^>]*>\s*/i, "")
+    .replace('<script type="module">', '<script>globalThis.DIRGAIN_ARTIFACT = true;</script>\n<script type="module">');
+  writeFileSync(process.argv[ai + 1], artifact);
+  console.log(`wrote artifact variant ${process.argv[ai + 1]}`);
+}
