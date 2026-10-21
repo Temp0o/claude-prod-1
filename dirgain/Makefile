@@ -3,7 +3,7 @@ CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Werror -pedantic -D_DEFAULT_SOURCE
 BUILD := build
 CORE := core/dirgain.c core/dirgain.h
 
-.PHONY: all test test-js test-c vectors linux bundle windows clean
+.PHONY: all test test-js test-c vectors linux bundle windows windows-test clean
 
 all: test linux bundle
 
@@ -36,13 +36,15 @@ linux: $(BUILD)/dirgaind
 bundle:
 	node tools/bundle.mjs
 
-# make windows INTERCEPTION_SDK=/path/to/Interception  (cross-compiles with MinGW)
+# make windows INTERCEPTION_SDK=/path/to/Interception  (cross-compiles a self-contained dirgain.exe with MinGW)
 windows:
 	@test -n "$(INTERCEPTION_SDK)" || (echo "set INTERCEPTION_SDK to a checkout of github.com/oblitum/Interception" && false)
 	@mkdir -p $(BUILD)
-	x86_64-w64-mingw32-gcc -O2 -std=c11 -Wall -Wextra -Icore -I$(INTERCEPTION_SDK)/library -DINTERCEPTION_STATIC \
+	x86_64-w64-mingw32-gcc -O2 -std=c11 -Wall -Wextra -Werror -Icore -I$(INTERCEPTION_SDK)/library -DINTERCEPTION_STATIC -static \
 		windows/dirgain-interception.c core/dirgain.c $(INTERCEPTION_SDK)/library/interception.c \
-		-o $(BUILD)/dirgain-interception.exe
+		-o $(BUILD)/dirgain.exe
 
-clean:
-	rm -rf $(BUILD) dist
+# Runs the real Windows event loop against a mock Interception library under Wine.
+windows-test:
+	@test -n "$(INTERCEPTION_SDK)" || (echo "set INTERCEPTION_SDK to a checkout of github.com/oblitum/Interception" && false)
+	windows/test/run.sh $(INTERCEPTION_SDK)

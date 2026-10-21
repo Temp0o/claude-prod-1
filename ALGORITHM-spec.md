@@ -41,7 +41,9 @@ For a target at direction θ and cursor-space distance D, the user plans with a 
 
 where A is the cursor displacement of the **first ballistic submovement**, g the applied gain, h̄ the user's assumed mean gain. Goal: choose `ℓ(θ) = log g(θ)` so E[y | θ] does not depend on θ, i.e. `ℓ(θ) = −log m(θ) + const`.
 
-Parametrization: `ℓ(θ) = Σ_{k=1..K} a_k cos 2kθ + b_k sin 2kθ`, K = 2 by default. Only even harmonics, so `g(θ) = g(θ+π)` and out-and-back motion returns the cursor to its start. Then anchor (2.4) and clamp `|ℓ| ≤ 0.15`.
+Parametrization: `ℓ(θ) = Σ_{k=1..K} a_k cos 2kθ + b_k sin 2kθ`, K = 2 by default. Even harmonics give `g(θ) = g(θ+π)`, so out-and-back motion returns the cursor to its start. Then anchor (2.4) and clamp `|ℓ| ≤ 0.15`.
+
+Added in v0.2: an optional first odd harmonic `o1c cos θ + o1s sin θ` (left vs right, push vs pull). It gets its own gate, so it enters only when the data show it. Motivation: Raw Accel's source (`common/rawaccel.hpp`) already applies separate left/right and up/down multipliers, so this asymmetry is something players can use in games today. The cost is that out-and-back motion no longer returns exactly to its start, which matters little for FPS camera control.
 
 What a gain can and cannot fix: it fixes systematic extent bias and hand travel. With signal-dependent noise (SD proportional to amplitude), relative endpoint noise in cursor space does not depend on g, so a gain cannot fix direction differences in noise [D]. The benefit is fewer and shorter corrective submovements.
 
@@ -51,12 +53,12 @@ What a gain can and cannot fix: it fixes systematic extent bias and hand travel.
 - Log every raw `(dx, dy, t)` at the highest available rate, with DPI and in-game sensitivity. In the browser, use unadjusted pointer-lock movement [K].
 
 ### 2.3 First-submovement ratio ρ
-Speed trace from raw deltas, Gaussian-smoothed (initial σ ≈ 8 ms). Onset: speed above 5% of trial peak. End of the first submovement: the first local minimum after the peak with prominence at least 20% of peak (Persistence1D-style), else speed below 10% of peak, with a 60 ms minimum duration. `ρ = |displacement over that window| / D`, `y = log ρ`. Cross-check with a "peak-mirror" estimator (displacement at `t0 + 2(t_peak − t0)`) [D]. Reject trials with no clear peak. All thresholds are initial values to tune on pilot data. Benchmark them on synthetic minimum-jerk traces with known submovement ends before trusting them (not done yet).
+In FPS mode the same computation runs in camera-angle space (yaw right, pitch down, degrees). That space is linear in mouse counts, so nothing else changes. Movements starting under 100 ms after the target appears are rejected as anticipation. Speed trace from raw deltas, Gaussian-smoothed (initial σ ≈ 8 ms). Onset: speed above 5% of trial peak. End of the first submovement: the first local minimum after the peak with prominence at least 20% of peak (Persistence1D-style), else speed below 10% of peak, with a 60 ms minimum duration. `ρ = |displacement over that window| / D`, `y = log ρ`. Cross-check with a "peak-mirror" estimator (displacement at `t0 + 2(t_peak − t0)`) [D]. Reject trials with no clear peak. All thresholds are initial values to tune on pilot data. Benchmark them on synthetic minimum-jerk traces with known submovement ends before trusting them (not done yet).
 
 ### 2.4 Estimator
 Per fit, on the pooled trials:
-1. Regress `y` on [per-amplitude intercepts, cos2θ, sin2θ, cos4θ, sin4θ] with Huber IRLS (c = 1.345, MAD scale) and a small ridge (λ = 2) on the harmonic terms. Per-amplitude intercepts absorb amplitude-dependent under/overshoot but are **untested**: the simulation used a single intercept.
-2. **Gate:** joint Wald test on the harmonic coefficients (χ², df = 2K), apply a profile only if p < 0.01. Otherwise no profile.
+1. Regress `y` on [per-session × distance intercepts, cos2θ, sin2θ, cos4θ, sin4θ, (cos θ, sin θ)] with Huber IRLS (c = 1.345, MAD scale) and a small ridge (λ = 2) on the harmonic terms. The intercepts absorb distance-dependent under/overshoot and day-to-day changes in overall gain.
+2. **Gate (v0.2): within-group permutation test**, run separately for the even shape (K = 2 fixed) and for the odd pair, each at α = 0.005. Outcomes are group-centered, turned into rank-based normal scores, and scored by n·R² of the harmonic columns. Shuffling outcomes within groups (2,000 times) gives the exact null distribution, because directions are uniformly shuffled within each group by design. Why it replaced the Wald test of v0.1: on segmented, simulated human-like data the Wald gate gave 3-5% false profiles instead of 1%. A second subtle inflation came from trial-to-trial adaptation (negative lag-1 correlation) combined with a "no repeated direction" ordering rule, so trial order is now a plain uniform shuffle. After both fixes, on 500 simulated null players: 4.6% below p 0.05 and 1.0% below p 0.01.
 3. **Shrink** the passing coefficients by `τ² / (τ² + SE²)` per coefficient, τ = 0.03 (prior: biases are a few percent).
 4. Choose K by 5-fold held-out likelihood among K = 1, 2, 3 (the sim shows K = 2 is best or equal at n ≥ 240 with decent SNR, K = 1 competitive when noisy).
 5. Profile = `−(fitted harmonics)`, then **anchor**: subtract `ℓ(θ_anchor)`. Default anchor: the horizontal axis, so existing in-game sensitivity and muscle memory are untouched for the most common flick direction [D]. Alternatives: geometric mean, or Corsair-style "strongest direction".
@@ -172,3 +174,12 @@ Scripts: `sim/dirgain_sim.py`, `sim/dirgain_gate.py` (Python 3, numpy). Syntheti
 - [Gain vs rotation generalization (PMC4507963)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4507963) and [review (PMC2888232)](https://pmc.ncbi.nlm.nih.gov/articles/PMC2888232)
 - [Aimlabs Mouselabs sensitivity finder](https://aimlabs.com/articles/aimlabs/aimlabs-mouselabs-explained-smarter-sensitivity-finder-better-results/)
 - [Sensitivity Randomizer](https://github.com/Whisperrr/SensitivityRandomizer)
+
+## 7. Changes in v0.2 (built and tested in `dirgain/`)
+- **Asymmetry terms** (left/right, push/pull) with their own gate (section 2.1).
+- **Permutation gate** replacing the Wald gate; calibration evidence in section 2.4.
+- **Session × distance intercepts** and **anticipation rejection** (sections 2.3 and 2.4).
+- **Distance-consistency diagnostic:** a harmonics × distance interaction test, shown as information only (stricter 0.001 cut, since it is parametric).
+- **FPS calibration mode:** targets at 8°, 18° and 32° of camera rotation, with the player's game sensitivity (Valorant, CS2, Apex, Overwatch 2 and CoD presets, or cm/360). The hand movement then matches the game.
+- **Raw Accel export:** a least-squares fit of Raw Accel's output scale, Y/X, L/R and U/D ratios to the profile. It reports the share of the profile's directional variance captured (diagonal terms cannot be expressed), the remaining error, and the maximum aim-direction shift caused by Raw Accel's per-axis scaling. Field names come from Raw Accel's `wrapper/wrapper.cpp`.
+- **A/B control** keeps the profile's average gain; bootstrap over mini-blocks; verdicts are labeled preliminary below 280 trials per condition (section 2.7).
