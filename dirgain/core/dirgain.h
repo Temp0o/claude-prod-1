@@ -5,6 +5,7 @@
 
 typedef struct {
     double a0, a1, b1, a2, b2, a3, b3;
+    double o1c, o1s;
     double lambda;
     double reset_ms;
     double clamp;
@@ -20,7 +21,7 @@ int dirgain_profile_parse(dirgain_profile *p, const char *text, char *err, size_
 int dirgain_profile_load(dirgain_profile *p, const char *path, char *err, size_t errlen);
 
 void dirgain_state_reset(dirgain_state *st);
-double dirgain_harmonics(const dirgain_profile *p, double c2, double s2);
+double dirgain_harmonics(const dirgain_profile *p, double c1, double s1);
 void dirgain_step(const dirgain_profile *p, dirgain_state *st, int dx, int dy, double dt_ms,
                   int *ox, int *oy);
 

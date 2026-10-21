@@ -6,7 +6,9 @@ import {
   analyze,
   bootstrapDiff,
   chiSquareSurvivalEven,
+  distanceConsistency,
   huberFit,
+  rawAccelFit,
   segmentTrial,
   updateProfile,
 } from "./analysis.js";
@@ -16,7 +18,7 @@ import { createSimUser, runSimTrial } from "./simuser.js";
 const fixture = JSON.parse(readFileSync(new URL("./test/fit-fixture.json", import.meta.url)));
 
 test("Huber-ridge fit matches the Python reference estimator", () => {
-  const rows = fixture.theta.map((theta, i) => ({ theta, amp: 0, y: fixture.y[i] }));
+  const rows = fixture.theta.map((theta, i) => ({ theta, group: 0, y: fixture.y[i] }));
   const fit = huberFit(rows, 2);
   fit.harmonics.forEach((v, i) => assert.ok(Math.abs(v - fixture.coef[i]) < 1e-9, `coef ${i}`));
   fit.cov.forEach((row, i) =>
@@ -125,4 +127,52 @@ test("bootstrap CI brackets a known difference", () => {
   const r = bootstrapDiff(a, b);
   assert.ok(Math.abs(r.diff + 40) < 1e-9);
   assert.ok(r.lo < -40 && r.hi > -40);
+});
+
+test("segmentation rejects anticipatory movement", () => {
+  const target = { x: 300, y: 0 };
+  const s = [{ t: 0, x: 0, y: 0 }, ...minJerk(0, 0, 280, 0, 10, 180), { t: 500, x: 280, y: 0 }];
+  const seg = segmentTrial(s, target);
+  assert.equal(seg.ok, false);
+  assert.match(seg.reason, /anticipation/);
+});
+
+test("left/right and up/down asymmetry is detected and recovered", () => {
+  const oddCoef = [0.06, -0.04];
+  const user = createSimUser({ seed: 21, biasCoef: [0, 0, 0, 0], oddCoef, noiseSd: 0.1, adaptRate: 0.05 });
+  const r = analyze(runBlock(user, defaultProfile(), 6, 9).filter((t) => t.ok), { K: 2 });
+  assert.ok(r.odd.pass, `odd p=${r.odd.p}`);
+  assert.equal(r.even.pass, false, `even p=${r.even.p}`);
+  r.odd.coef.forEach((v, i) => assert.ok(Math.abs(v - oddCoef[i]) < 0.025, `odd ${i}: ${v}`));
+  const p = updateProfile(defaultProfile(), r, { eta: 1 }).profile;
+  assert.ok(p.o1c < 0 && p.o1s > 0, "profile counteracts the asymmetry");
+  const off = updateProfile(defaultProfile(), r, { eta: 1, allowOdd: false });
+  assert.equal(off.changed, false);
+});
+
+test("distance consistency flags a pattern that flips between distances", () => {
+  const rows = [];
+  const r = createSimUser({ seed: 5 }).r;
+  for (let i = 0; i < 600; i++) {
+    const theta = (2 * Math.PI * (i % 24)) / 24;
+    const amp = i % 3;
+    const sign = amp === 2 ? -1 : 1;
+    rows.push({ theta, amp, group: amp, y: sign * 0.06 * Math.cos(2 * theta) + 0.05 * (r() - 0.5) });
+  }
+  assert.equal(distanceConsistency(rows, 2).consistent, false);
+  const same = rows.map((x) => ({ ...x, y: 0.06 * Math.cos(2 * x.theta) + 0.05 * (r() - 0.5) }));
+  assert.equal(distanceConsistency(same, 2).consistent, true);
+});
+
+test("Raw Accel fit captures axis ratios but not diagonal shapes", () => {
+  const yxOnly = { ...defaultProfile(), a1: 0.06 };
+  const f1 = rawAccelFit(yxOnly);
+  assert.ok(f1.captured > 0.95, `captured ${f1.captured}`);
+  assert.ok(f1.yx < 1, "vertical gain lower than horizontal when a1 > 0");
+  const diag = { ...defaultProfile(), a2: 0.06 };
+  assert.ok(rawAccelFit(diag).captured < 0.1);
+  const lr = { ...defaultProfile(), o1c: 0.05 };
+  const f3 = rawAccelFit(lr);
+  assert.ok(f3.lr < 1 && f3.captured > 0.6, `lr ${f3.lr} captured ${f3.captured}`);
+  assert.ok(Math.abs(rawAccelFit(defaultProfile()).sens - 1) < 1e-9);
 });

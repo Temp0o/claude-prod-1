@@ -14,15 +14,11 @@ export function makeBlock(reps, seed) {
       }
     }
   }
+  // A plain uniform shuffle: the permutation gate is exact only for this assignment. (A
+  // "no repeated direction" rule plus trial-to-trial adaptation inflated false positives.)
   for (let i = trials.length - 1; i > 0; i--) {
     const j = Math.floor(r() * (i + 1));
     [trials[i], trials[j]] = [trials[j], trials[i]];
-  }
-  for (let i = 1; i < trials.length; i++) {
-    if (trials[i].dir === trials[i - 1].dir) {
-      const j = trials.findIndex((t, k) => k > i && t.dir !== trials[i - 1].dir);
-      if (j > 0) [trials[i], trials[j]] = [trials[j], trials[i]];
-    }
   }
   return trials;
 }

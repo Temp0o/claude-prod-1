@@ -18,8 +18,8 @@ test("identity profile passes every stream through unchanged", () => {
   }
 });
 
-test("negated input gives exactly negated output", () => {
-  for (const p of Object.values(PROFILES)) {
+test("negated input gives exactly negated output for symmetric profiles", () => {
+  for (const p of Object.values(PROFILES).filter((q) => q.o1c === 0 && q.o1s === 0)) {
     for (const events of Object.values(allStreams())) {
       const a = run(p, events);
       const b = run(p, events.map(([dx, dy, dt]) => [-dx, -dy, dt]));
@@ -28,8 +28,22 @@ test("negated input gives exactly negated output", () => {
   }
 });
 
-test("gain is pi-periodic", () => {
+test("odd harmonics give different gains for opposite directions", () => {
+  const p = { ...defaultProfile(), o1c: 0.05, o1s: -0.04 };
+  const r = flick(0, 5000, 200, 1);
+  const l = flick(180, 5000, 200, 1);
+  const d = flick(90, 5000, 200, 1);
+  const u = flick(270, 5000, 200, 1);
+  const g = (ev, i) => sum(run(p, ev), i) / sum(ev, i);
+  assert.ok(Math.abs(g(r, 0) - expApprox(0.05)) < 1e-3, "right");
+  assert.ok(Math.abs(g(l, 0) - expApprox(-0.05)) < 1e-3, "left");
+  assert.ok(Math.abs(g(d, 1) - expApprox(-0.04)) < 1e-3, "down");
+  assert.ok(Math.abs(g(u, 1) - expApprox(0.04)) < 1e-3, "up");
+});
+
+test("even part of the gain is pi-periodic", () => {
   const p = PROFILES.typical;
+  assert.equal(p.o1c, 0);
   for (let d = 0; d < 360; d += 7) {
     const t = (d * Math.PI) / 180;
     assert.ok(Math.abs(logGainAtAngle(p, t) - logGainAtAngle(p, t + Math.PI)) < 1e-12);

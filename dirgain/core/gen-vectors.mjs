@@ -10,7 +10,7 @@ const streams = allStreams();
 for (const [pname, p] of Object.entries(PROFILES)) {
   for (const [sname, events] of Object.entries(streams)) {
     lines.push(`# ${pname}/${sname}`);
-    lines.push(["P", ...PARAM_KEYS.map((k) => p[k])].join(" "));
+    lines.push(["P", ...PARAM_KEYS.map((k) => `${k}=${p[k]}`)].join(" "));
     const st = createState();
     for (const [dx, dy, dt] of events) {
       const [ox, oy] = step(p, st, dx, dy, dt);

@@ -13,16 +13,18 @@ function gauss(r) {
 export function createSimUser({
   seed = 1,
   biasCoef = [0.04, -0.03, 0.025, 0.02],
+  oddCoef = [0, 0],
   noiseSd = 0.12,
   angleSdDeg = 3,
   adaptRate = 0.1,
 } = {}) {
-  return { r: mulberry32(seed), biasCoef, noiseSd, angleSd: (angleSdDeg * Math.PI) / 180, adaptRate, logH: 0 };
+  return { r: mulberry32(seed), biasCoef, oddCoef, noiseSd, angleSd: (angleSdDeg * Math.PI) / 180, adaptRate, logH: 0 };
 }
 
 export function trueLogBias(user, theta) {
   const h = harmonicRow(theta, user.biasCoef.length / 2);
-  return h.reduce((a, v, i) => a + v * user.biasCoef[i], 0);
+  const even = h.reduce((a, v, i) => a + v * user.biasCoef[i], 0);
+  return even + user.oddCoef[0] * Math.cos(theta) + user.oddCoef[1] * Math.sin(theta);
 }
 
 function submovement(user, errX, errY, sens, primary) {

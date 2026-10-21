@@ -47,9 +47,12 @@ static void test_vectors(const char *path)
     dirgain_state_reset(&st);
     while (fgets(line, sizeof line, f)) {
         if (line[0] == 'P') {
-            int n = sscanf(line, "P %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", &p.a0, &p.a1, &p.b1,
-                           &p.a2, &p.b2, &p.a3, &p.b3, &p.lambda, &p.reset_ms, &p.clamp);
-            CHECK(n == 10, "bad P line: %s", line);
+            char conf[512];
+            char err[128];
+            snprintf(conf, sizeof conf, "%s", line + 1);
+            for (char *c = conf; *c; c++)
+                if (*c == ' ') *c = '\n';
+            CHECK(dirgain_profile_parse(&p, conf, err, sizeof err) == 0, "bad P line: %s (%s)", line, err);
             dirgain_state_reset(&st);
             sum_c[0] = sum_c[1] = sum_e[0] = sum_e[1] = 0;
         } else if (line[0] == 'E') {

@@ -81,9 +81,10 @@ export function mixedDt(n, seed) {
 }
 
 export const PROFILES = {
-  identity: { a0: 0, a1: 0, b1: 0, a2: 0, b2: 0, a3: 0, b3: 0, lambda: 8, reset_ms: 100, clamp: 0.15 },
-  typical: { a0: 0.01, a1: -0.05, b1: 0.03, a2: 0.02, b2: -0.015, a3: 0.005, b3: 0, lambda: 8, reset_ms: 100, clamp: 0.15 },
-  clamped: { a0: 0, a1: 0.4, b1: -0.3, a2: 0, b2: 0, a3: 0, b3: 0, lambda: 3, reset_ms: 20, clamp: 0.15 },
+  identity: { a0: 0, a1: 0, b1: 0, a2: 0, b2: 0, a3: 0, b3: 0, o1c: 0, o1s: 0, lambda: 8, reset_ms: 100, clamp: 0.15 },
+  typical: { a0: 0.01, a1: -0.05, b1: 0.03, a2: 0.02, b2: -0.015, a3: 0.005, b3: 0, o1c: 0, o1s: 0, lambda: 8, reset_ms: 100, clamp: 0.15 },
+  clamped: { a0: 0, a1: 0.4, b1: -0.3, a2: 0, b2: 0, a3: 0, b3: 0, o1c: 0, o1s: 0, lambda: 3, reset_ms: 20, clamp: 0.15 },
+  asymmetric: { a0: -0.01, a1: 0.03, b1: 0.02, a2: -0.01, b2: 0, a3: 0, b3: 0, o1c: 0.04, o1s: -0.03, lambda: 8, reset_ms: 100, clamp: 0.15 },
 };
 
 export function allStreams() {

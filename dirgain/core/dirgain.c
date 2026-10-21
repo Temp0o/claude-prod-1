@@ -24,6 +24,8 @@ static double *field(dirgain_profile *p, const char *key)
     if (!strcmp(key, "b2")) return &p->b2;
     if (!strcmp(key, "a3")) return &p->a3;
     if (!strcmp(key, "b3")) return &p->b3;
+    if (!strcmp(key, "o1c")) return &p->o1c;
+    if (!strcmp(key, "o1s")) return &p->o1s;
     if (!strcmp(key, "lambda")) return &p->lambda;
     if (!strcmp(key, "reset_ms")) return &p->reset_ms;
     if (!strcmp(key, "clamp")) return &p->clamp;
@@ -107,13 +109,16 @@ void dirgain_state_reset(dirgain_state *st)
     memset(st, 0, sizeof(*st));
 }
 
-double dirgain_harmonics(const dirgain_profile *p, double c2, double s2)
+double dirgain_harmonics(const dirgain_profile *p, double c1, double s1)
 {
+    double c2 = c1 * c1 - s1 * s1;
+    double s2 = 2 * c1 * s1;
     double c4 = 2 * c2 * c2 - 1;
     double s4 = 2 * s2 * c2;
     double c6 = c2 * c4 - s2 * s4;
     double s6 = s2 * c4 + c2 * s4;
-    return p->a1 * c2 + p->b1 * s2 + p->a2 * c4 + p->b2 * s4 + p->a3 * c6 + p->b3 * s6;
+    return p->a1 * c2 + p->b1 * s2 + p->a2 * c4 + p->b2 * s4 + p->a3 * c6 + p->b3 * s6 +
+           p->o1c * c1 + p->o1s * s1;
 }
 
 static int round_half_away(double f)
@@ -121,9 +126,9 @@ static int round_half_away(double f)
     return f < 0 ? -(int)floor(-f + 0.5) : (int)floor(f + 0.5);
 }
 
-/* Direction comes from the displacement over the last ~lambda counts of path (so x-only and
- * y-only 1-count packets still resolve a diagonal), doubled so reversals keep the same axis.
- * Harmonics fade only while that displacement is under one count, i.e. mid-reversal. */
+/* Direction comes from the displacement over the last ~lambda counts of path, so x-only and
+ * y-only 1-count packets still resolve a diagonal. Harmonics fade only while that displacement
+ * is under one count, i.e. mid-reversal. */
 
 void dirgain_step(const dirgain_profile *p, dirgain_state *st, int dx, int dy, double dt_ms,
                   int *ox, int *oy)
@@ -137,13 +142,11 @@ void dirgain_step(const dirgain_profile *p, dirgain_state *st, int dx, int dy, d
     double a = dt_ms > p->reset_ms ? 0 : exp(-hypot(fdx, fdy) / p->lambda);
     st->vx = a * st->vx + fdx;
     st->vy = a * st->vy + fdy;
-    double m2 = st->vx * st->vx + st->vy * st->vy;
+    double m = sqrt(st->vx * st->vx + st->vy * st->vy);
     double x = p->a0;
-    if (m2 > 1e-12) {
-        double k = sqrt(m2);
-        if (k > 1) k = 1;
-        x += k * dirgain_harmonics(p, (st->vx * st->vx - st->vy * st->vy) / m2,
-                                   (2 * st->vx * st->vy) / m2);
+    if (m > 1e-6) {
+        double k = m < 1 ? m : 1;
+        x += k * dirgain_harmonics(p, st->vx / m, st->vy / m);
     }
     if (x > p->clamp) x = p->clamp;
     else if (x < -p->clamp) x = -p->clamp;
