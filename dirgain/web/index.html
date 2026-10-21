@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DirGain Calibrator</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #5d6677; --line: #d9dde5;
+    --accent: #2457c5; --accent-ink: #ffffff; --warn: #a45200; --good: #1d7a46; --bad: #b3261e;
+    --task-bg: #14171d; --task-ink: #e8ebf0; --target: #f0a020; --hit: #3ccf7a; --miss: #ef5350;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101318; --panel: #181c23; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2b313c;
+      --accent: #6d9bff; --accent-ink: #0b1020; --warn: #f0a050; --good: #57d18a; --bad: #ff7b72;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101318; --panel: #181c23; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2b313c;
+    --accent: #6d9bff; --accent-ink: #0b1020; --warn: #f0a050; --good: #57d18a; --bad: #ff7b72;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  label { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0; color: var(--muted); }
+  input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: 140px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .muted { color: var(--muted); }
+  .warn { color: var(--warn); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  .banner { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  .chart svg { width: 100%; height: auto; max-width: 420px; display: block; margin: 0 auto; }
+  .chart .ref { stroke: var(--line); fill: none; }
+  .chart .axis { stroke: var(--line); }
+  .chart .cur { stroke: var(--accent); fill: none; stroke-width: 2; }
+  .chart .prop { stroke: var(--warn); fill: none; stroke-width: 2; stroke-dasharray: 6 4; }
+  .chart .pt { fill: var(--muted); }
+  .chart text { fill: var(--muted); font-size: 11px; }
+  #task { position: fixed; inset: 0; background: var(--task-bg); display: none; cursor: none; }
+  #task.on { display: block; }
+  #task canvas { width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; top: 12px; left: 16px; color: var(--task-ink); font-size: 13px; opacity: 0.75; pointer-events: none; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DirGain Calibrator</h1>
+  <p class="lead">Measures whether your flicks overshoot or undershoot differently by direction, fits a per-direction gain profile only if the bias is statistically real, and checks with a blind A/B test whether the profile actually helps you.</p>
+  <div id="simBanner" class="banner" hidden>Simulation mode: a synthetic user replaces your mouse. Results show the pipeline working, not your aim.</div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>1. Setup</h2>
+      <label>Mouse DPI <input id="dpi" type="number" min="100" max="32000" step="50"></label>
+      <label>Cursor px per count <input id="sens" type="number" min="0.05" max="10" step="0.05"></label>
+      <label>Anchor (gain kept at 1) <select id="anchor"><option value="horizontal">horizontal</option><option value="vertical">vertical</option><option value="mean">direction average</option></select></label>
+      <p class="muted" id="sensNote"></p>
+      <p class="muted" id="lockNote">Uses raw mouse input (pointer lock, unadjusted movement). Turn off OS pointer acceleration for the most faithful numbers. Press Esc to stop a run.</p>
+    </section>
+
+    <section class="card">
+      <h2>2. Calibrate</h2>
+      <p class="muted">Flick from the center to each target and click it. One block is 72 targets (24 directions × 3 distances, about 2 minutes). Your current profile is applied while you play, so each round measures what is left.</p>
+      <p id="calibCount"></p>
+      <div class="row">
+        <button class="primary" id="btnCalib">Start calibration block</button>
+        <button id="btnAnalyze">Analyze</button>
+      </div>
+      <div id="analysis"></div>
+    </section>
+
+    <section class="card">
+      <h2>Profile</h2>
+      <div class="chart" id="chart"></div>
+      <div id="profileTable"></div>
+      <div class="row">
+        <button class="primary" id="btnAccept" disabled>Accept proposed profile</button>
+        <button id="btnResetProfile">Reset to flat</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. Validate (blind A/B)</h2>
+      <p class="muted">192 targets in alternating blocks with and without the profile's directional shape (the control keeps the same average gain); you are not told which. The headline is time to hit. Pool several sessions: detecting a 20 ms effect needs roughly 280 trials per condition.</p>
+      <div class="row">
+        <button class="primary" id="btnAB">Start A/B session</button>
+        <button id="btnTrack">Tracking guard (4 × 10 s)</button>
+      </div>
+      <div id="abResult"></div>
+    </section>
+
+    <section class="card">
+      <h2>4. Export</h2>
+      <p class="muted"><code>profile.conf</code> is read by the Linux daemon and the Windows adapter. Raw data lets you re-run the analysis later.</p>
+      <div class="row">
+        <button id="btnConf">Download profile.conf</button>
+        <button id="btnJson">Download profile.json</button>
+        <button id="btnData">Download raw data</button>
+        <label style="margin:0"><span class="muted">Import data</span><input id="importData" type="file" accept="application/json"></label>
+      </div>
+      <div class="row"><button id="btnClear">Delete all sessions</button></div>
+      <p class="muted" id="storeNote"></p>
+    </section>
+  </div>
+</main>
+
+<div id="task"><canvas id="canvas"></canvas><div id="hud"></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

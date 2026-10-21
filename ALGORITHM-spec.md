@@ -67,24 +67,26 @@ Fit again on trials collected with the profile active; the coefficients then est
 Why η is small [D, checked in S]: if the user also re-learns at rate β, the error evolves as `e_{t+1} = (1 − η − β) e_t`. Both act on the same error, so η + β near 2 oscillates, and part of the correction is absorbed by the user rather than the profile.
 
 ### 2.6 Runtime transform (per mouse report)
+As built in `dirgain/core/` (revised from v0.1 after tests, see below):
 ```
-Qc = a·Qc + (dx² − dy²);  Qs = a·Qs + 2·dx·dy;  N = a·N + (dx² + dy²)   // a = exp(−Δt/τ), τ ≈ 3 ms
-κ = hypot(Qc, Qs) / N                      // coherence, 0..1
-(c2, s2) = (Qc, Qs) / hypot(Qc, Qs)
-c4 = 2·c2² − 1;  s4 = 2·s2·c2
-x = κ · (A1·c2 + B1·s2 + A2·c4 + B2·s4)    // log-gain; |x| ≤ 0.15
-g = 1 + x + x²/2                           // error below 6e-4 for |x| ≤ 0.15
-out = g·(dx, dy) + carry;  emit round(out);  carry = out − emitted
+a = (Δt > reset_ms) ? 0 : exp(−|d| / λ)    // decay per count of path, not per ms; λ ≈ 0.25 mm of travel
+V = a·V + (dx, dy)                         // displacement over the last ~λ counts
+(c2, s2) = ((Vx² − Vy²), 2·Vx·Vy) / |V|²    // doubled angle: a reversal keeps the same axis
+c4 = 2·c2² − 1;  s4 = 2·s2·c2;  c6, s6 likewise (K up to 3)
+x = a0 + min(1, |V|) · Σ harmonics         // a0 never fades; harmonics fade only while |V| < 1 count
+x = clamp(x, ±0.15);  g = 1 + x + x²/2     // error below 6e-4 for |x| ≤ 0.15
+out = g·(dx, dy) + carry;  emit round_half_away(out);  carry = out − emitted
 ```
-- The doubled-angle structure tensor is sign-invariant, so reversals do not cancel, and it is speed-weighted. No `atan2`, no lookup table, fixed-point friendly.
+- Revisions found by testing: (1) v0.1's tensor of individual packets fails at low speed, because x-only and y-only 1-count packets never produce the cross term. A 30° line read as roughly horizontal (gain 1.028 instead of 1.051). Averaging the displacement vector over path length fixes it. (2) v0.1 also faded the constant term, so a pure global gain wobbled with path jitter.
+- Rounding is half-away-from-zero, so negated input gives exactly negated output.
 - The residual `carry` is per device, so slow 1-count motion is never swallowed.
-- τ trades direction quantization at low speed (single packets only give 45° steps) against lag. Tune in the Linux phase and measure added latency.
-- One shared set of test vectors (`dx, dy, Δt` streams plus expected output) checks the TypeScript calibrator, the C library and any kernel port within 1 count.
+- Shared test vectors (`dirgain/vectors/`) check the JS calibrator against the C library; on 9,612 events they agree exactly.
 
 ### 2.7 Validation protocol
 - Interleaved, counterbalanced blocks of baseline vs fitted profile on held-out targets. **Primary metric: time to hit.** Secondary: hit rate, overshoot. **Do not** use directional variance of ρ as the headline, because the fit reduces it by construction.
+- **The control keeps the profile's average gain** (flat at `a0`), so the conditions differ only in directional shape. Found in testing: with a plain flat control, every block switch forces a global gain re-adaptation, which penalizes whichever condition was just switched to.
 - **Tracking guard:** a moving-target task. The profile must not worsen RMS tracking error beyond a preset margin, since it is fitted on flicks but applies to everything.
-- Paired bootstrap 95% CI. Rough power, assuming a paired-difference SD of about 120 ms [D]: detecting 20 ms needs about 280 paired trials.
+- Bootstrap over mini-blocks, not trials: trials within a block share warm-up, fatigue and adaptation state. Rough power, assuming a paired-difference SD of about 120 ms [D]: detecting 20 ms needs about 280 trials per condition. The calibrator labels anything below that as preliminary.
 - Day-2 retest of the fitted coefficients (test-retest) and a 2-3 day adaptation period before the final verdict.
 - Ship rule: CI excludes zero in favor on time to hit, with no tracking regression. Otherwise stop at the calibration tool.
 
@@ -99,7 +101,7 @@ out = g·(dx, dy) + carry;  emit round(out);  carry = out − emitted
 | Anchor | horizontal axis | [D] |
 | Speed smoothing σ | 8 ms | assumed, tune |
 | Persistence / minimum duration | 20% / 60 ms | literature-inspired [V], tune |
-| Direction EMA τ | 3 ms | assumed, tune |
+| Direction window λ / idle reset | 0.25 mm of travel (8 counts at 800 DPI) / 100 ms | tested on synthetic streams; tune on real mice |
 | Trials | at least 400 | [S] |
 
 ## 3. Simulation results [S]

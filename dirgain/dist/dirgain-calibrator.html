@@ -1,0 +1,1358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DirGain Calibrator</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #5d6677; --line: #d9dde5;
+    --accent: #2457c5; --accent-ink: #ffffff; --warn: #a45200; --good: #1d7a46; --bad: #b3261e;
+    --task-bg: #14171d; --task-ink: #e8ebf0; --target: #f0a020; --hit: #3ccf7a; --miss: #ef5350;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101318; --panel: #181c23; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2b313c;
+      --accent: #6d9bff; --accent-ink: #0b1020; --warn: #f0a050; --good: #57d18a; --bad: #ff7b72;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101318; --panel: #181c23; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2b313c;
+    --accent: #6d9bff; --accent-ink: #0b1020; --warn: #f0a050; --good: #57d18a; --bad: #ff7b72;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  label { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0; color: var(--muted); }
+  input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: 140px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .muted { color: var(--muted); }
+  .warn { color: var(--warn); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  .banner { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  .chart svg { width: 100%; height: auto; max-width: 420px; display: block; margin: 0 auto; }
+  .chart .ref { stroke: var(--line); fill: none; }
+  .chart .axis { stroke: var(--line); }
+  .chart .cur { stroke: var(--accent); fill: none; stroke-width: 2; }
+  .chart .prop { stroke: var(--warn); fill: none; stroke-width: 2; stroke-dasharray: 6 4; }
+  .chart .pt { fill: var(--muted); }
+  .chart text { fill: var(--muted); font-size: 11px; }
+  #task { position: fixed; inset: 0; background: var(--task-bg); display: none; cursor: none; }
+  #task.on { display: block; }
+  #task canvas { width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; top: 12px; left: 16px; color: var(--task-ink); font-size: 13px; opacity: 0.75; pointer-events: none; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DirGain Calibrator</h1>
+  <p class="lead">Measures whether your flicks overshoot or undershoot differently by direction, fits a per-direction gain profile only if the bias is statistically real, and checks with a blind A/B test whether the profile actually helps you.</p>
+  <div id="simBanner" class="banner" hidden>Simulation mode: a synthetic user replaces your mouse. Results show the pipeline working, not your aim.</div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>1. Setup</h2>
+      <label>Mouse DPI <input id="dpi" type="number" min="100" max="32000" step="50"></label>
+      <label>Cursor px per count <input id="sens" type="number" min="0.05" max="10" step="0.05"></label>
+      <label>Anchor (gain kept at 1) <select id="anchor"><option value="horizontal">horizontal</option><option value="vertical">vertical</option><option value="mean">direction average</option></select></label>
+      <p class="muted" id="sensNote"></p>
+      <p class="muted" id="lockNote">Uses raw mouse input (pointer lock, unadjusted movement). Turn off OS pointer acceleration for the most faithful numbers. Press Esc to stop a run.</p>
+    </section>
+
+    <section class="card">
+      <h2>2. Calibrate</h2>
+      <p class="muted">Flick from the center to each target and click it. One block is 72 targets (24 directions × 3 distances, about 2 minutes). Your current profile is applied while you play, so each round measures what is left.</p>
+      <p id="calibCount"></p>
+      <div class="row">
+        <button class="primary" id="btnCalib">Start calibration block</button>
+        <button id="btnAnalyze">Analyze</button>
+      </div>
+      <div id="analysis"></div>
+    </section>
+
+    <section class="card">
+      <h2>Profile</h2>
+      <div class="chart" id="chart"></div>
+      <div id="profileTable"></div>
+      <div class="row">
+        <button class="primary" id="btnAccept" disabled>Accept proposed profile</button>
+        <button id="btnResetProfile">Reset to flat</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. Validate (blind A/B)</h2>
+      <p class="muted">192 targets in alternating blocks with and without the profile's directional shape (the control keeps the same average gain); you are not told which. The headline is time to hit. Pool several sessions: detecting a 20 ms effect needs roughly 280 trials per condition.</p>
+      <div class="row">
+        <button class="primary" id="btnAB">Start A/B session</button>
+        <button id="btnTrack">Tracking guard (4 × 10 s)</button>
+      </div>
+      <div id="abResult"></div>
+    </section>
+
+    <section class="card">
+      <h2>4. Export</h2>
+      <p class="muted"><code>profile.conf</code> is read by the Linux daemon and the Windows adapter. Raw data lets you re-run the analysis later.</p>
+      <div class="row">
+        <button id="btnConf">Download profile.conf</button>
+        <button id="btnJson">Download profile.json</button>
+        <button id="btnData">Download raw data</button>
+        <label style="margin:0"><span class="muted">Import data</span><input id="importData" type="file" accept="application/json"></label>
+      </div>
+      <div class="row"><button id="btnClear">Delete all sessions</button></div>
+      <p class="muted" id="storeNote"></p>
+    </section>
+  </div>
+</main>
+
+<div id="task"><canvas id="canvas"></canvas><div id="hud"></div></div>
+<script type="module">
+// ---- core/dirgain.js
+const COEF_KEYS = ["a0", "a1", "b1", "a2", "b2", "a3", "b3"];
+const PARAM_KEYS = [...COEF_KEYS, "lambda", "reset_ms", "clamp"];
+
+function defaultProfile() {
+  return { a0: 0, a1: 0, b1: 0, a2: 0, b2: 0, a3: 0, b3: 0, lambda: 8, reset_ms: 100, clamp: 0.15 };
+}
+
+function createState() {
+  return { vx: 0, vy: 0, cx: 0, cy: 0 };
+}
+
+// c2, s2 = cos/sin of the doubled movement angle (unit vector)
+function harmonicsAt(p, c2, s2) {
+  const c4 = 2 * c2 * c2 - 1;
+  const s4 = 2 * s2 * c2;
+  const c6 = c2 * c4 - s2 * s4;
+  const s6 = s2 * c4 + c2 * s4;
+  return p.a1 * c2 + p.b1 * s2 + p.a2 * c4 + p.b2 * s4 + p.a3 * c6 + p.b3 * s6;
+}
+
+function logGainAtAngle(p, theta) {
+  return p.a0 + harmonicsAt(p, Math.cos(2 * theta), Math.sin(2 * theta));
+}
+
+function roundHalfAway(f) {
+  const r = f < 0 ? -Math.floor(-f + 0.5) : Math.floor(f + 0.5);
+  return r === 0 ? 0 : r;
+}
+
+// Direction comes from the displacement over the last ~lambda counts of path (so x-only and
+// y-only 1-count packets still resolve a diagonal), doubled so reversals keep the same axis.
+// Harmonics fade only while that displacement is under one count, i.e. mid-reversal.
+function step(p, st, dx, dy, dtMs) {
+  if (dx === 0 && dy === 0) return [0, 0];
+  const a = dtMs > p.reset_ms ? 0 : Math.exp(-Math.hypot(dx, dy) / p.lambda);
+  st.vx = a * st.vx + dx;
+  st.vy = a * st.vy + dy;
+  const m2 = st.vx * st.vx + st.vy * st.vy;
+  let x = p.a0;
+  if (m2 > 1e-12) {
+    const k = Math.min(1, Math.sqrt(m2));
+    x += k * harmonicsAt(p, (st.vx * st.vx - st.vy * st.vy) / m2, (2 * st.vx * st.vy) / m2);
+  }
+  if (x > p.clamp) x = p.clamp;
+  else if (x < -p.clamp) x = -p.clamp;
+  const g = 1 + x + 0.5 * x * x;
+  const fx = g * dx + st.cx;
+  const fy = g * dy + st.cy;
+  const ox = roundHalfAway(fx);
+  const oy = roundHalfAway(fy);
+  st.cx = fx - ox;
+  st.cy = fy - oy;
+  return [ox, oy];
+}
+
+function toConf(p) {
+  return PARAM_KEYS.map((k) => `${k} = ${p[k]}`).join("\n") + "\n";
+}
+
+function fromConf(text) {
+  const p = defaultProfile();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*/, "").trim();
+    if (!line) continue;
+    const m = /^([a-z0-9_]+)\s*=\s*(\S+)$/.exec(line);
+    if (!m || !(m[1] in p)) throw new Error(`bad profile line: ${raw}`);
+    const v = Number(m[2]);
+    if (!Number.isFinite(v)) throw new Error(`bad number: ${raw}`);
+    p[m[1]] = v;
+  }
+  if (!(p.lambda > 0) || !(p.reset_ms >= 0) || !(p.clamp >= 0)) {
+    throw new Error("lambda must be > 0, reset_ms >= 0 and clamp >= 0");
+  }
+  return p;
+}
+
+// ---- web/analysis.js
+
+
+const HARMONIC_KEYS = COEF_KEYS.slice(1);
+
+const DEFAULTS = {
+  smoothSigmaMs: 8,
+  onsetFrac: 0.05,
+  primaryPeakFrac: 0.5,
+  endFrac: 0.1,
+  persistenceFrac: 0.2,
+  minDurationMs: 60,
+  huberC: 1.345,
+  ridge: 2,
+  gateAlpha: 0.01,
+  priorSd: 0.03,
+  eta: 0.5,
+};
+
+// samples: [{t, x, y}] cursor positions (px) from target onset, first sample at the start position.
+function segmentTrial(samples, target, opts = {}) {
+  const o = { ...DEFAULTS, ...opts };
+  const D = Math.hypot(target.x, target.y);
+  if (samples.length < 3 || !(D > 0)) return { ok: false, reason: "too few samples" };
+  const t0 = samples[0].t;
+  const tEnd = samples[samples.length - 1].t;
+  const n = Math.floor(tEnd - t0) + 1;
+  if (n < 20) return { ok: false, reason: "too short" };
+  const px = new Float64Array(n);
+  const py = new Float64Array(n);
+  let j = 0;
+  for (let i = 0; i < n; i++) {
+    const t = t0 + i;
+    while (j < samples.length - 2 && samples[j + 1].t <= t) j++;
+    const a = samples[j];
+    const b = samples[j + 1];
+    const f = b.t > a.t ? Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t))) : 1;
+    px[i] = a.x + f * (b.x - a.x);
+    py[i] = a.y + f * (b.y - a.y);
+  }
+  const raw = new Float64Array(n);
+  for (let i = 1; i < n; i++) raw[i] = Math.hypot(px[i] - px[i - 1], py[i] - py[i - 1]);
+  const speed = gaussianSmooth(raw, o.smoothSigmaMs);
+
+  let globalPeak = 0;
+  for (let i = 0; i < n; i++) if (speed[i] > globalPeak) globalPeak = speed[i];
+  if (!(globalPeak > 0)) return { ok: false, reason: "no movement" };
+  let peak = -1;
+  for (let i = 1; i < n - 1; i++) {
+    if (speed[i] >= o.primaryPeakFrac * globalPeak && speed[i] >= speed[i - 1] && speed[i] >= speed[i + 1]) {
+      peak = i;
+      break;
+    }
+  }
+  if (peak < 0) return { ok: false, reason: "no primary peak" };
+  const ps = speed[peak];
+  let onset = peak;
+  while (onset > 0 && speed[onset - 1] >= o.onsetFrac * ps) onset--;
+  let end = n - 1;
+  let minV = ps;
+  let minI = peak;
+  for (let i = peak + 1; i < n; i++) {
+    if (speed[i] < o.endFrac * ps) {
+      end = i;
+      break;
+    }
+    if (speed[i] < minV) {
+      minV = speed[i];
+      minI = i;
+    }
+    if (speed[i] > minV + o.persistenceFrac * ps) {
+      end = minI;
+      break;
+    }
+  }
+  if (end - onset < o.minDurationMs) return { ok: false, reason: "first submovement too short" };
+
+  const ux = target.x / D;
+  const uy = target.y / D;
+  const along = (i) => (px[i] - px[onset]) * ux + (py[i] - py[onset]) * uy;
+  const across = (i) => -(px[i] - px[onset]) * uy + (py[i] - py[onset]) * ux;
+  const rho = along(end) / D;
+  const lateral = across(end) / D;
+  const angErr = Math.atan2(across(end), along(end));
+  if (!(rho > 0.2 && rho < 3)) return { ok: false, reason: `implausible extent ${rho.toFixed(2)}` };
+  if (Math.abs(angErr) > Math.PI / 4) return { ok: false, reason: "wrong direction" };
+  const mirror = Math.min(n - 1, onset + 2 * (peak - onset));
+  return {
+    ok: true,
+    rho,
+    rhoMirror: along(mirror) / D,
+    lateral,
+    onsetMs: onset,
+    peakMs: peak,
+    endMs: end,
+    peakSpeed: ps,
+  };
+}
+
+function gaussianSmooth(x, sigma) {
+  const r = Math.ceil(3 * sigma);
+  const k = [];
+  for (let i = -r; i <= r; i++) k.push(Math.exp((-0.5 * i * i) / (sigma * sigma)));
+  const out = new Float64Array(x.length);
+  for (let i = 0; i < x.length; i++) {
+    let acc = 0;
+    let wsum = 0;
+    for (let d = -r; d <= r; d++) {
+      const j = i + d;
+      if (j < 0 || j >= x.length) continue;
+      acc += k[d + r] * x[j];
+      wsum += k[d + r];
+    }
+    out[i] = acc / wsum;
+  }
+  return out;
+}
+
+function harmonicRow(theta, K) {
+  const row = [];
+  for (let k = 1; k <= K; k++) row.push(Math.cos(2 * k * theta), Math.sin(2 * k * theta));
+  return row;
+}
+
+function solve(A, b) {
+  const n = b.length;
+  const M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    if (Math.abs(M[c][c]) < 1e-14) throw new Error("singular system");
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}
+
+function inverse(A) {
+  const n = A.length;
+  const cols = [];
+  for (let i = 0; i < n; i++) {
+    const e = new Array(n).fill(0);
+    e[i] = 1;
+    cols.push(solve(A, e));
+  }
+  return A.map((_, i) => cols.map((c) => c[i]));
+}
+
+function median(v) {
+  const s = [...v].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : 0.5 * (s[m - 1] + s[m]);
+}
+
+// rows: [{theta, amp, y}] with y = log(rho); amp is an integer group index
+function huberFit(rows, K, o = DEFAULTS) {
+  const amps = [...new Set(rows.map((r) => r.amp))].sort((a, b) => a - b);
+  const nA = amps.length;
+  const X = rows.map((r) => [...amps.map((a) => (a === r.amp ? 1 : 0)), ...harmonicRow(r.theta, K)]);
+  const y = rows.map((r) => r.y);
+  const p = nA + 2 * K;
+  const pen = (i) => (i >= nA ? o.ridge : 0);
+  let w = new Array(rows.length).fill(1);
+  let b = null;
+  let s = 1;
+  const normal = () => {
+    const A = Array.from({ length: p }, (_, i) => Array.from({ length: p }, (_, j) => (i === j ? pen(i) : 0)));
+    const v = new Array(p).fill(0);
+    for (let r = 0; r < X.length; r++) {
+      const xr = X[r];
+      for (let i = 0; i < p; i++) {
+        v[i] += w[r] * xr[i] * y[r];
+        for (let j = 0; j < p; j++) A[i][j] += w[r] * xr[i] * xr[j];
+      }
+    }
+    return [A, v];
+  };
+  for (let it = 0; it < 15; it++) {
+    const [A, v] = normal();
+    b = solve(A, v);
+    const res = y.map((yy, r) => yy - X[r].reduce((acc, xi, i) => acc + xi * b[i], 0));
+    const med = median(res);
+    s = Math.max(1.4826 * median(res.map((e) => Math.abs(e - med))), 1e-6);
+    w = res.map((e) => {
+      const u = Math.abs(e) / (o.huberC * s);
+      return u <= 1 ? 1 : 1 / u;
+    });
+  }
+  const [A] = normal();
+  const cov = inverse(A).map((row) => row.map((v) => v * s * s));
+  const hIdx = Array.from({ length: 2 * K }, (_, i) => nA + i);
+  return {
+    K,
+    amps,
+    intercepts: b.slice(0, nA),
+    harmonics: hIdx.map((i) => b[i]),
+    cov: hIdx.map((i) => hIdx.map((j) => cov[i][j])),
+    scale: s,
+    n: rows.length,
+  };
+}
+
+function chiSquareSurvivalEven(x, df) {
+  const h = x / 2;
+  let term = 1;
+  let sum = 1;
+  for (let j = 1; j < df / 2; j++) {
+    term *= h / j;
+    sum += term;
+  }
+  return Math.exp(-h) * sum;
+}
+
+function huberLoss(e, c) {
+  const a = Math.abs(e);
+  return a <= c ? 0.5 * e * e : c * (a - 0.5 * c);
+}
+
+function selectK(rows, o = DEFAULTS, folds = 5) {
+  const scale = huberFit(rows, 1, o).scale;
+  let best = { K: 2, loss: Infinity };
+  for (const K of [1, 2, 3]) {
+    let loss = 0;
+    for (let f = 0; f < folds; f++) {
+      const train = rows.filter((_, i) => i % folds !== f);
+      const test = rows.filter((_, i) => i % folds === f);
+      const fit = huberFit(train, K, o);
+      for (const r of test) {
+        const ai = fit.amps.indexOf(r.amp);
+        const icpt = ai >= 0 ? fit.intercepts[ai] : fit.intercepts.reduce((a, b) => a + b, 0) / fit.intercepts.length;
+        const pred = icpt + harmonicRow(r.theta, K).reduce((acc, v, i) => acc + v * fit.harmonics[i], 0);
+        loss += huberLoss((r.y - pred) / scale, o.huberC);
+      }
+    }
+    if (loss < best.loss - 1e-9) best = { K, loss };
+  }
+  return best.K;
+}
+
+// trials: [{theta, amp, rho}] from segmentTrial on data collected with the current profile active
+function analyze(trials, opts = {}) {
+  const o = { ...DEFAULTS, ...opts };
+  const rows = trials.filter((t) => t.rho > 0).map((t) => ({ theta: t.theta, amp: t.amp, y: Math.log(t.rho) }));
+  if (rows.length < 30) return { ok: false, reason: `need at least 30 usable trials, have ${rows.length}` };
+  const K = o.K ?? selectK(rows, o);
+  const fit = huberFit(rows, K, o);
+  const c = fit.harmonics;
+  const chi = quadForm(c, inverse(fit.cov));
+  const p = chiSquareSurvivalEven(chi, 2 * K);
+  const se = fit.cov.map((r, i) => Math.sqrt(r[i]));
+  const shrunk = c.map((v, i) => (v * o.priorSd ** 2) / (o.priorSd ** 2 + se[i] ** 2));
+  const residualRms = rmsOverAngles((th) => harmonicRow(th, K).reduce((a, v, i) => a + v * c[i], 0));
+  return { ok: true, K, n: fit.n, coef: c, se, shrunk, wald: chi, p, pass: p < o.gateAlpha, scale: fit.scale, residualRms };
+}
+
+function quadForm(v, M) {
+  let s = 0;
+  for (let i = 0; i < v.length; i++) for (let j = 0; j < v.length; j++) s += v[i] * M[i][j] * v[j];
+  return s;
+}
+
+function rmsOverAngles(f, n = 360) {
+  let mean = 0;
+  const vals = [];
+  for (let i = 0; i < n; i++) {
+    const v = f((i * Math.PI) / n);
+    vals.push(v);
+    mean += v / n;
+  }
+  return Math.sqrt(vals.reduce((a, v) => a + (v - mean) ** 2, 0) / n);
+}
+
+function anchorTheta(anchor) {
+  if (anchor === "horizontal") return 0;
+  if (anchor === "vertical") return Math.PI / 2;
+  if (typeof anchor === "number") return anchor;
+  return null;
+}
+
+// Closed-loop update: next = current - eta * shrunk residual; re-anchored and kept inside the clamp.
+function updateProfile(profile, result, opts = {}) {
+  const o = { ...DEFAULTS, anchor: "horizontal", ...opts };
+  const next = { ...profile };
+  if (!result.ok || !result.pass) return { profile: next, changed: false };
+  result.shrunk.forEach((v, i) => {
+    next[HARMONIC_KEYS[i]] -= o.eta * v;
+  });
+  const harm = (th) => harmonicsAt(next, Math.cos(2 * th), Math.sin(2 * th));
+  const anchorAt = anchorTheta(o.anchor);
+  const setA0 = () => {
+    next.a0 = anchorAt === null ? 0 : -harm(anchorAt);
+  };
+  setA0();
+  let maxAbs = 0;
+  for (let i = 0; i < 360; i++) maxAbs = Math.max(maxAbs, Math.abs(next.a0 + harm((i * Math.PI) / 360)));
+  if (maxAbs > next.clamp) {
+    const f = next.clamp / maxAbs;
+    for (const k of HARMONIC_KEYS) next[k] *= f;
+    setA0();
+  }
+  return { profile: next, changed: true };
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Difference of means (b - a) with a percentile bootstrap CI.
+function bootstrapDiff(a, b, iters = 2000, seed = 1) {
+  if (a.length < 2 || b.length < 2) return null;
+  const r = mulberry32(seed);
+  const mean = (v) => v.reduce((s, x) => s + x, 0) / v.length;
+  const pick = (v) => {
+    let s = 0;
+    for (let i = 0; i < v.length; i++) s += v[Math.floor(r() * v.length)];
+    return s / v.length;
+  };
+  const diffs = [];
+  for (let i = 0; i < iters; i++) diffs.push(pick(b) - pick(a));
+  diffs.sort((x, y) => x - y);
+  return {
+    diff: mean(b) - mean(a),
+    lo: diffs[Math.floor(0.025 * iters)],
+    hi: diffs[Math.floor(0.975 * iters)],
+  };
+}
+
+// ---- web/charts.js
+
+
+const SIZE = 360;
+const C = SIZE / 2;
+const R0 = 110;
+const EXAGGERATE = 4;
+
+function radius(logGain) {
+  return R0 * (1 + EXAGGERATE * (Math.exp(logGain) - 1));
+}
+
+function curve(fn) {
+  const pts = [];
+  for (let i = 0; i <= 180; i++) {
+    const th = (i * 2 * Math.PI) / 180;
+    const r = radius(fn(th));
+    pts.push(`${(C + r * Math.cos(th)).toFixed(1)},${(C + r * Math.sin(th)).toFixed(1)}`);
+  }
+  return pts.join(" ");
+}
+
+// Screen convention: +x right, +y down, matching mouse reports.
+function polarChart({ current, proposed, dirPoints = [] }) {
+  const parts = [`<svg viewBox="0 0 ${SIZE} ${SIZE}" role="img" aria-label="Gain by movement direction">`];
+  for (const g of [0.9, 1.0, 1.1]) {
+    parts.push(`<circle class="ref" cx="${C}" cy="${C}" r="${radius(Math.log(g)).toFixed(1)}"/>`);
+  }
+  parts.push(`<line class="axis" x1="${C - 170}" y1="${C}" x2="${C + 170}" y2="${C}"/>`);
+  parts.push(`<line class="axis" x1="${C}" y1="${C - 170}" x2="${C}" y2="${C + 170}"/>`);
+  parts.push(`<text x="${C + R0 * 1.42}" y="${C - 4}">right</text>`);
+  parts.push(`<text x="${C + 4}" y="${C + R0 * 1.55}">down</text>`);
+  parts.push(`<text x="${C + 4}" y="${C - radius(Math.log(1.1)) - 2}">+10%</text>`);
+  for (const p of dirPoints) {
+    const r = radius(p.logRel);
+    for (const th of [p.theta, p.theta + Math.PI]) {
+      parts.push(`<circle class="pt" cx="${(C + r * Math.cos(th)).toFixed(1)}" cy="${(C + r * Math.sin(th)).toFixed(1)}" r="2.5"/>`);
+    }
+  }
+  if (current) parts.push(`<polyline class="cur" points="${curve((th) => logGainAtAngle(current, th))}"/>`);
+  if (proposed) parts.push(`<polyline class="prop" points="${curve((th) => logGainAtAngle(proposed, th))}"/>`);
+  parts.push("</svg>");
+  return parts.join("");
+}
+
+// ---- web/protocol.js
+
+
+const DIRECTIONS = 24;
+const AMP_FRACS = [0.14, 0.26, 0.4];
+
+// Angles are in screen/device coordinates (y grows downward), matching mouse reports.
+function makeBlock(reps, seed) {
+  const r = mulberry32(seed);
+  const trials = [];
+  for (let k = 0; k < reps; k++) {
+    for (let d = 0; d < DIRECTIONS; d++) {
+      for (let a = 0; a < AMP_FRACS.length; a++) {
+        trials.push({ dir: d, theta: (2 * Math.PI * d) / DIRECTIONS, amp: a });
+      }
+    }
+  }
+  for (let i = trials.length - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    [trials[i], trials[j]] = [trials[j], trials[i]];
+  }
+  for (let i = 1; i < trials.length; i++) {
+    if (trials[i].dir === trials[i - 1].dir) {
+      const j = trials.findIndex((t, k) => k > i && t.dir !== trials[i - 1].dir);
+      if (j > 0) [trials[i], trials[j]] = [trials[j], trials[i]];
+    }
+  }
+  return trials;
+}
+
+function targetFor(trial, viewW, viewH) {
+  const D = AMP_FRACS[trial.amp] * Math.min(viewW, viewH);
+  return {
+    x: D * Math.cos(trial.theta),
+    y: D * Math.sin(trial.theta),
+    D,
+    radius: Math.max(10, D / 24),
+  };
+}
+
+// ---- web/simuser.js
+
+
+
+function gauss(r) {
+  let u = 0;
+  while (u === 0) u = r();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r());
+}
+
+// Synthetic user for testing the pipeline: plans with a flat internal gain that adapts to the
+// overall (direction-averaged) extent error, and executes with a persistent direction-dependent
+// bias exp(biasCoef . harmonics(theta)) plus lognormal noise.
+function createSimUser({
+  seed = 1,
+  biasCoef = [0.04, -0.03, 0.025, 0.02],
+  noiseSd = 0.12,
+  angleSdDeg = 3,
+  adaptRate = 0.1,
+} = {}) {
+  return { r: mulberry32(seed), biasCoef, noiseSd, angleSd: (angleSdDeg * Math.PI) / 180, adaptRate, logH: 0 };
+}
+
+function trueLogBias(user, theta) {
+  const h = harmonicRow(theta, user.biasCoef.length / 2);
+  return h.reduce((a, v, i) => a + v * user.biasCoef[i], 0);
+}
+
+function submovement(user, errX, errY, sens, primary) {
+  const r = user.r;
+  const dist = Math.hypot(errX, errY);
+  const theta = Math.atan2(errY, errX);
+  const noise = primary ? user.noiseSd : 2 * user.noiseSd;
+  const extent = (dist / sens) * Math.exp(trueLogBias(user, theta) - user.logH + noise * gauss(r));
+  const ang = theta + user.angleSd * gauss(r) * (primary ? 1 : 2);
+  const durMs = Math.round(110 + 35 * Math.log2(1 + extent / 40));
+  const events = [];
+  let prev = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 1; i <= durMs; i++) {
+    const s = i / durMs;
+    const pos = extent * (10 * s ** 3 - 15 * s ** 4 + 6 * s ** 5);
+    const d = pos - prev;
+    prev = pos;
+    const fx = d * Math.cos(ang) + cx;
+    const fy = d * Math.sin(ang) + cy;
+    const ix = Math.trunc(fx) || 0;
+    const iy = Math.trunc(fy) || 0;
+    cx = fx - ix;
+    cy = fy - iy;
+    events.push([ix, iy]);
+  }
+  return events;
+}
+
+// Runs one flick trial through the real transform. Returns cursor samples from target onset.
+function runSimTrial(user, target, { sens, radius, profile, maxSubmovements = 6 }) {
+  const r = user.r;
+  const st = createState();
+  let t = 0;
+  let x = 0;
+  let y = 0;
+  let lastT = 0;
+  const samples = [{ t: 0, x: 0, y: 0 }];
+  const raw = [];
+  t += 180 + 30 * gauss(r);
+  for (let k = 0; k < maxSubmovements; k++) {
+    const ex = target.x - x;
+    const ey = target.y - y;
+    if (Math.hypot(ex, ey) <= radius) break;
+    for (const [dx, dy] of submovement(user, ex, ey, sens, k === 0)) {
+      t += 1;
+      if (dx === 0 && dy === 0) continue;
+      const [ox, oy] = step(profile, st, dx, dy, t - lastT);
+      lastT = t;
+      x += ox * sens;
+      y += oy * sens;
+      raw.push({ t, dx, dy });
+      samples.push({ t, x, y });
+    }
+    if (k === 0) {
+      const D = Math.hypot(target.x, target.y);
+      const along = (x * target.x + y * target.y) / (D * D);
+      user.logH += user.adaptRate * Math.log(Math.max(along, 0.2));
+    }
+    t += 120 + 30 * Math.abs(gauss(r));
+  }
+  const hit = Math.hypot(target.x - x, target.y - y) <= radius;
+  t += 80;
+  samples.push({ t, x, y });
+  return { samples, raw, timeToHit: t, hit };
+}
+
+// ---- web/app.js
+
+
+
+
+
+
+const SIM = new URLSearchParams(location.search).has("sim");
+const STORE_KEY = "dirgain.v1";
+const AB_ORDER = ["A", "B", "B", "A", "B", "A", "A", "B"];
+const MIN_AB_TRIALS = 280;
+const TRIAL_TIMEOUT_MS = 3000;
+const $ = (id) => document.getElementById(id);
+
+const app = {
+  settings: { dpi: 800, sens: 1, anchor: "horizontal" },
+  profile: defaultProfile(),
+  proposal: null,
+  sessions: [],
+  simUser: null,
+};
+
+function profileKey(p) {
+  return PARAM_KEYS.filter((k) => k !== "clamp").map((k) => Number(p[k]).toFixed(6)).join(",");
+}
+
+function lambdaForDpi(dpi) {
+  return Math.max(2, Math.round((dpi * 0.25) / 25.4));
+}
+
+function stripRaw(session) {
+  return { ...session, trials: session.trials?.map(({ samples, ...t }) => t) };
+}
+
+function save() {
+  try {
+    localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ settings: app.settings, profile: app.profile, sessions: app.sessions.map(stripRaw) }),
+    );
+    $("storeNote").textContent = `${app.sessions.length} session(s) saved in this browser (summaries only; download raw data to keep traces).`;
+  } catch {
+    $("storeNote").textContent = "Browser storage unavailable: download your data before closing the tab.";
+  }
+}
+
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    if (s) {
+      Object.assign(app.settings, s.settings || {});
+      app.profile = { ...defaultProfile(), ...(s.profile || {}) };
+      app.sessions = s.sessions || [];
+    }
+  } catch {
+    /* storage blocked or corrupt: start fresh */
+  }
+}
+
+function download(name, text, type = "text/plain") {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ---------- analysis and rendering ----------
+
+function calibTrials() {
+  const key = profileKey(app.profile);
+  return app.sessions
+    .filter((s) => s.kind === "calibrate" && s.profileKey === key && !!s.sim === SIM)
+    .flatMap((s) => s.trials);
+}
+
+function dirPoints(trials) {
+  const ok = trials.filter((t) => t.seg?.ok);
+  if (ok.length < 24) return [];
+  const mean = ok.reduce((a, t) => a + Math.log(t.seg.rho), 0) / ok.length;
+  const shift = app.proposal ? app.proposal.profile.a0 - app.profile.a0 : 0;
+  const half = DIRECTIONS / 2;
+  const pts = [];
+  for (let d = 0; d < half; d++) {
+    const sel = ok.filter((t) => t.dir % half === d);
+    if (sel.length < 3) continue;
+    const m = sel.reduce((a, t) => a + Math.log(t.seg.rho), 0) / sel.length;
+    const theta = (2 * Math.PI * d) / DIRECTIONS;
+    pts.push({ theta, logRel: -(m - mean) + logGainAtAngle(app.profile, theta) + shift });
+  }
+  return pts;
+}
+
+function fmtPct(logGain) {
+  const v = (Math.exp(logGain) - 1) * 100;
+  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+}
+
+function renderProfile() {
+  const trials = calibTrials();
+  $("chart").innerHTML = polarChart({
+    current: app.profile,
+    proposed: app.proposal?.profile,
+    dirPoints: dirPoints(trials),
+  });
+  const rows = [0, 45, 90, 135].map((deg) => {
+    const th = (deg * Math.PI) / 180;
+    const cur = fmtPct(logGainAtAngle(app.profile, th));
+    const prop = app.proposal ? fmtPct(logGainAtAngle(app.proposal.profile, th)) : "–";
+    return `<tr><td>${deg}° / ${deg + 180}°</td><td>${cur}</td><td>${prop}</td></tr>`;
+  });
+  $("profileTable").innerHTML =
+    `<table><tr><th>Direction (0° = right, 90° = down)</th><th>Current</th><th>Proposed</th></tr>${rows.join("")}</table>` +
+    `<p class="muted">Solid: current profile. Dashed: proposal. Dots: gain implied by your measured bias. Radial scale exaggerated 4×.</p>`;
+  $("btnAccept").disabled = !app.proposal;
+}
+
+function renderCounts() {
+  const trials = calibTrials();
+  const ok = trials.filter((t) => t.seg?.ok).length;
+  $("calibCount").textContent = `${trials.length} trials collected with the current profile (${ok} usable). The analysis needs about 400 for a reliable result.`;
+  const cps = 1 / app.settings.sens;
+  const cm = (window.innerWidth * cps * 2.54) / app.settings.dpi;
+  $("sensNote").textContent = `Crossing this screen's width takes about ${cm.toFixed(1)} cm of mouse travel. Pick a speed that feels like your in-game aim.`;
+}
+
+function runAnalysis() {
+  const trials = calibTrials();
+  const usable = trials.filter((t) => t.seg?.ok).map((t) => ({ theta: t.theta, amp: t.amp, rho: t.seg.rho }));
+  const res = analyze(usable);
+  const el = $("analysis");
+  app.proposal = null;
+  if (!res.ok) {
+    el.innerHTML = `<p class="warn">${res.reason}.</p>`;
+    renderProfile();
+    return;
+  }
+  const rejected = trials.length - usable.length;
+  const spread = (res.residualRms * 100).toFixed(1);
+  let html = `<table>
+    <tr><td>Usable trials</td><td>${res.n} (${rejected} rejected)</td></tr>
+    <tr><td>Harmonics (auto-selected)</td><td>${res.K}</td></tr>
+    <tr><td>Directional bias (RMS)</td><td>${spread}%</td></tr>
+    <tr><td>Gate: joint Wald test</td><td>p = ${res.p.toExponential(2)} (needs &lt; 0.01)</td></tr>
+  </table>`;
+  if (res.pass) {
+    app.proposal = { profile: updateProfile(app.profile, res, { anchor: app.settings.anchor }).profile, result: res };
+    app.proposal.profile.lambda = lambdaForDpi(app.settings.dpi);
+    html += `<p class="good">A directional bias is statistically reliable. A proposal is shown on the profile chart. Accept it, then run another calibration block to measure what is left (and an A/B session to see whether it helps).</p>`;
+  } else {
+    html += `<p>No reliable directional bias at this sample size. Keep the current profile. Collect more blocks, or stop here: a flat profile is the right answer if your aim has no consistent directional bias.</p>`;
+  }
+  el.innerHTML = html;
+  renderProfile();
+}
+
+function renderAB() {
+  const key = profileKey(app.profile);
+  const ab = app.sessions.filter((s) => s.kind === "ab" && s.profileKey === key && !!s.sim === SIM);
+  const tr = app.sessions.filter((s) => s.kind === "tracking" && s.profileKey === key && !!s.sim === SIM);
+  const el = $("abResult");
+  if (!ab.length && !tr.length) {
+    el.innerHTML = `<p class="muted">No A/B data for the current profile yet.</p>`;
+    return;
+  }
+  const trials = ab.flatMap((s) => s.trials.map((t) => ({ ...t, blockId: `${s.id}:${t.block}` })));
+  const byCond = (c) => trials.filter((t) => t.cond === c);
+  const tth = (c) => byCond(c).filter((t) => t.hit).map((t) => t.timeToHit);
+  const hitRate = (c) => byCond(c).filter((t) => t.hit).length / Math.max(1, byCond(c).length);
+  const mean = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN);
+  // Resample whole mini-blocks: trials inside a block share warm-up, fatigue and adaptation state.
+  const blockMeans = (c) => {
+    const groups = new Map();
+    for (const t of byCond(c)) {
+      if (!t.hit) continue;
+      if (!groups.has(t.blockId)) groups.set(t.blockId, []);
+      groups.get(t.blockId).push(t.timeToHit);
+    }
+    return [...groups.values()].map(mean);
+  };
+  let html = "";
+  if (trials.length) {
+    const d = bootstrapDiff(blockMeans("A"), blockMeans("B"));
+    const enough = Math.min(byCond("A").length, byCond("B").length) >= MIN_AB_TRIALS;
+    let verdict = "Not enough blocks yet.";
+    if (d) {
+      if (d.hi < 0) verdict = `<span class="good">The profile made you faster: the whole 95% interval is below zero.</span>`;
+      else if (d.lo > 0) verdict = `<span class="bad">The profile made you slower. Reset to flat.</span>`;
+      else verdict = "No detectable difference (the interval includes zero).";
+      if (!enough) verdict = `<b>Preliminary</b> (under ${MIN_AB_TRIALS} trials per condition, keep collecting): ${verdict}`;
+    }
+    html += `<table>
+      <tr><th></th><th>Without profile</th><th>With profile</th></tr>
+      <tr><td>Trials</td><td>${byCond("A").length}</td><td>${byCond("B").length}</td></tr>
+      <tr><td>Hit rate</td><td>${(100 * hitRate("A")).toFixed(1)}%</td><td>${(100 * hitRate("B")).toFixed(1)}%</td></tr>
+      <tr><td>Mean time to hit</td><td>${mean(tth("A")).toFixed(0)} ms</td><td>${mean(tth("B")).toFixed(0)} ms</td></tr>
+    </table>`;
+    if (d) html += `<p>Difference (with − without): <b>${d.diff.toFixed(0)} ms</b>, 95% CI ${d.lo.toFixed(0)} to ${d.hi.toFixed(0)} ms (block bootstrap). ${verdict}</p>`;
+  }
+  if (tr.length) {
+    const win = (c) => tr.flatMap((s) => s.runs.filter((r) => r.cond === c).flatMap((r) => r.windows));
+    const d = bootstrapDiff(win("A"), win("B"));
+    if (d) {
+      const worse = d.lo > 0;
+      html += `<p>Tracking guard: RMS error difference ${d.diff.toFixed(1)} px (95% CI ${d.lo.toFixed(1)} to ${d.hi.toFixed(1)}). ${
+        worse ? '<span class="bad">The profile hurts tracking.</span>' : "No tracking regression detected."
+      }</p>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+function renderAll() {
+  $("dpi").value = app.settings.dpi;
+  $("sens").value = app.settings.sens;
+  $("anchor").value = app.settings.anchor;
+  renderCounts();
+  renderProfile();
+  renderAB();
+}
+
+// ---------- task runner (real mouse) ----------
+
+const task = {
+  canvas: null,
+  ctx: null,
+  active: false,
+  x: 0,
+  y: 0,
+  profile: null,
+  st: null,
+  lastTs: null,
+  rec: null,
+  onClick: null,
+  target: null,
+  phase: "idle",
+  feedback: null,
+  path: null,
+};
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  task.canvas.width = Math.round(innerWidth * dpr);
+  task.canvas.height = Math.round(innerHeight * dpr);
+  task.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function onPointerMove(e) {
+  if (!task.active || document.pointerLockElement !== task.canvas) return;
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of evs.length ? evs : [e]) {
+    const dx = ev.movementX;
+    const dy = ev.movementY;
+    if (!dx && !dy) continue;
+    const dt = task.lastTs === null ? 1 : ev.timeStamp - task.lastTs;
+    task.lastTs = ev.timeStamp;
+    const [ox, oy] = step(task.profile, task.st, dx, dy, dt);
+    task.x += ox * app.settings.sens;
+    task.y += oy * app.settings.sens;
+    if (task.rec) task.rec.push({ t: ev.timeStamp - task.rec.t0, x: task.x, y: task.y });
+  }
+}
+
+function draw() {
+  if (!task.active) return;
+  const ctx = task.ctx;
+  const W = innerWidth;
+  const H = innerHeight;
+  const cx = W / 2;
+  const cy = H / 2;
+  const css = getComputedStyle(document.documentElement);
+  ctx.fillStyle = css.getPropertyValue("--task-bg");
+  ctx.fillRect(0, 0, W, H);
+  if (task.phase === "hold") {
+    ctx.strokeStyle = css.getPropertyValue("--task-ink");
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, 0, 2 * Math.PI);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  if (task.target) {
+    ctx.fillStyle = task.feedback ? css.getPropertyValue(task.feedback === "hit" ? "--hit" : "--miss") : css.getPropertyValue("--target");
+    ctx.beginPath();
+    ctx.arc(cx + task.target.x, cy + task.target.y, task.target.radius, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+  ctx.strokeStyle = css.getPropertyValue("--task-ink");
+  ctx.lineWidth = 2;
+  const px = cx + task.x;
+  const py = cy + task.y;
+  ctx.beginPath();
+  ctx.moveTo(px - 8, py);
+  ctx.lineTo(px + 8, py);
+  ctx.moveTo(px, py - 8);
+  ctx.lineTo(px, py + 8);
+  ctx.stroke();
+  requestAnimationFrame(draw);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function enterTask() {
+  $("task").classList.add("on");
+  resizeCanvas();
+  try {
+    await task.canvas.requestPointerLock({ unadjustedMovement: true });
+  } catch {
+    await task.canvas.requestPointerLock();
+    $("lockNote").innerHTML = '<span class="warn">Raw (unadjusted) input was not available in this browser; OS acceleration may affect the numbers.</span>';
+  }
+  if (document.pointerLockElement !== task.canvas) throw new Error("pointer lock refused");
+  task.active = true;
+  requestAnimationFrame(draw);
+}
+
+function exitTask() {
+  task.active = false;
+  task.target = null;
+  task.rec = null;
+  if (document.pointerLockElement) document.exitPointerLock();
+  $("task").classList.remove("on");
+}
+
+function aborted() {
+  return !task.active || document.pointerLockElement !== task.canvas;
+}
+
+async function runFlick(trial, profile) {
+  const tgt = targetFor(trial, innerWidth, innerHeight);
+  task.profile = profile;
+  task.st = createState();
+  task.lastTs = null;
+  task.x = 0;
+  task.y = 0;
+  task.target = null;
+  task.feedback = null;
+  task.phase = "hold";
+  await sleep(350 + Math.random() * 400);
+  if (aborted()) return null;
+  task.x = 0;
+  task.y = 0;
+  task.phase = "go";
+  task.target = tgt;
+  const t0 = performance.now();
+  task.rec = [{ t: 0, x: 0, y: 0 }];
+  task.rec.t0 = t0;
+  const click = await new Promise((resolve) => {
+    task.onClick = resolve;
+    setTimeout(() => resolve(null), TRIAL_TIMEOUT_MS);
+  });
+  task.onClick = null;
+  const samples = task.rec;
+  task.rec = null;
+  if (aborted()) return null;
+  const tClick = click === null ? null : click - t0;
+  const hit = tClick !== null && Math.hypot(task.x - tgt.x, task.y - tgt.y) <= tgt.radius;
+  if (tClick !== null) samples.push({ t: tClick, x: task.x, y: task.y });
+  task.feedback = hit ? "hit" : "miss";
+  await sleep(180);
+  task.target = null;
+  return {
+    dir: trial.dir,
+    theta: trial.theta,
+    amp: trial.amp,
+    D: tgt.D,
+    radius: tgt.radius,
+    hit,
+    timeout: tClick === null,
+    timeToHit: tClick,
+    seg: tClick === null ? { ok: false, reason: "timeout" } : pickSeg(segmentTrial(samples, tgt)),
+    samples,
+  };
+}
+
+function pickSeg(s) {
+  return s.ok ? { ok: true, rho: s.rho, rhoMirror: s.rhoMirror, lateral: s.lateral } : { ok: false, reason: s.reason };
+}
+
+function hud(text) {
+  $("hud").textContent = text;
+}
+
+async function runTrials(kind, plan, profileFor) {
+  const session = newSession(kind);
+  try {
+    await enterTask();
+    for (let i = 0; i < plan.length; i++) {
+      hud(`${i + 1} / ${plan.length}  ·  Esc to stop`);
+      const res = await runFlick(plan[i], profileFor(plan[i]));
+      if (!res) break;
+      session.trials.push({ ...res, cond: plan[i].cond, block: plan[i].block });
+    }
+  } catch (err) {
+    alert(`Could not start: ${err.message}. Click the page first, and use a Chromium-based browser for raw input.`);
+  } finally {
+    exitTask();
+  }
+  finishSession(session);
+}
+
+function newSession(kind) {
+  return {
+    id: `${Date.now()}`,
+    kind,
+    sim: SIM,
+    profileKey: profileKey(app.profile),
+    profile: { ...app.profile },
+    settings: { ...app.settings },
+    trials: [],
+    runs: [],
+  };
+}
+
+function finishSession(session) {
+  if (session.trials.length || session.runs.length) app.sessions.push(session);
+  save();
+  renderAll();
+}
+
+// Each mini-block visits every direction once with distances rotating, so both conditions get
+// the same direction and distance mix.
+function abPlan() {
+  const seed = Date.now() & 0xffff;
+  return AB_ORDER.flatMap((cond, b) =>
+    makeBlock(1, seed + b)
+      .filter((t) => t.amp === (t.dir + b) % 3)
+      .map((t) => ({ ...t, cond, block: b })),
+  );
+}
+
+// The control keeps the profile's direction-averaged gain (a0), so A and B differ only in
+// directional shape and switching blocks does not force a global re-adaptation.
+function controlProfile() {
+  return { ...defaultProfile(), a0: app.profile.a0, lambda: app.profile.lambda, reset_ms: app.profile.reset_ms };
+}
+
+function profileForCond(trial) {
+  return trial.cond === "A" ? controlProfile() : app.profile;
+}
+
+async function runTracking() {
+  const session = newSession("tracking");
+  try {
+    await enterTask();
+    for (const [i, cond] of ["A", "B", "B", "A"].entries()) {
+      hud(`Tracking ${i + 1} / 4: keep the crosshair on the moving target  ·  Esc to stop`);
+      const run = await trackRun(cond === "A" ? controlProfile() : app.profile);
+      if (!run) break;
+      session.runs.push({ cond, ...run });
+    }
+  } catch (err) {
+    alert(`Could not start: ${err.message}`);
+  } finally {
+    exitTask();
+  }
+  finishSession(session);
+}
+
+async function trackRun(profile) {
+  task.profile = profile;
+  task.st = createState();
+  task.lastTs = null;
+  const S = 0.22 * Math.min(innerWidth, innerHeight);
+  const comps = [0.13, 0.21, 0.34, 0.47].map((f) => ({
+    f,
+    ax: S * (0.4 + 0.6 * Math.random()) / 2,
+    ay: S * (0.4 + 0.6 * Math.random()) / 2,
+    px: 2 * Math.PI * Math.random(),
+    py: 2 * Math.PI * Math.random(),
+  }));
+  const pos = (t) => ({
+    x: comps.reduce((a, c) => a + c.ax * Math.sin(2 * Math.PI * c.f * t + c.px), 0),
+    y: comps.reduce((a, c) => a + c.ay * Math.sin(2 * Math.PI * c.f * t + c.py), 0),
+  });
+  const start = pos(0);
+  task.x = start.x;
+  task.y = start.y;
+  task.phase = "track";
+  task.target = { ...start, radius: 12 };
+  const t0 = performance.now();
+  const windows = [];
+  let acc = 0;
+  let n = 0;
+  let w = 2;
+  while (performance.now() - t0 < 10000) {
+    await new Promise((r) => requestAnimationFrame(r));
+    if (aborted()) return null;
+    const t = (performance.now() - t0) / 1000;
+    const p = pos(t);
+    task.target = { ...p, radius: 12 };
+    if (t < 2) continue;
+    acc += (task.x - p.x) ** 2 + (task.y - p.y) ** 2;
+    n++;
+    if (t >= w + 1) {
+      windows.push(Math.sqrt(acc / Math.max(1, n)));
+      acc = 0;
+      n = 0;
+      w += 1;
+    }
+  }
+  task.target = null;
+  await sleep(600);
+  return { windows };
+}
+
+// ---------- simulation mode ----------
+
+function simUser() {
+  if (!app.simUser) app.simUser = createSimUser({ seed: 7, biasCoef: [0.05, -0.03, 0.03, 0.02], noiseSd: 0.1, adaptRate: 0.05 });
+  return app.simUser;
+}
+
+function simTrials(kind, plan, profileFor) {
+  const session = newSession(kind);
+  const W = 1600;
+  const H = 900;
+  for (const trial of plan) {
+    const tgt = targetFor(trial, W, H);
+    const res = runSimTrial(simUser(), tgt, { sens: app.settings.sens, radius: tgt.radius, profile: profileFor(trial) });
+    session.trials.push({
+      dir: trial.dir,
+      theta: trial.theta,
+      amp: trial.amp,
+      cond: trial.cond,
+      block: trial.block,
+      D: tgt.D,
+      radius: tgt.radius,
+      hit: res.hit,
+      timeout: false,
+      timeToHit: res.timeToHit,
+      seg: pickSeg(segmentTrial(res.samples, tgt)),
+      samples: res.samples,
+    });
+  }
+  finishSession(session);
+}
+
+// ---------- wiring ----------
+
+function init() {
+  load();
+  task.canvas = $("canvas");
+  task.ctx = task.canvas.getContext("2d");
+  if (SIM) {
+    $("simBanner").hidden = false;
+    $("btnCalib").textContent = "Simulate calibration block";
+    $("btnAB").textContent = "Simulate A/B session";
+    $("btnTrack").disabled = true;
+    $("btnTrack").title = "Tracking is not simulated";
+  }
+  window.addEventListener("resize", () => task.active && resizeCanvas());
+  document.addEventListener("pointermove", onPointerMove);
+  document.addEventListener("mousedown", (e) => {
+    if (task.active && e.button === 0 && task.onClick) task.onClick(performance.now());
+  });
+  document.addEventListener("pointerlockchange", () => {
+    if (!document.pointerLockElement && task.active) {
+      task.active = false;
+      if (task.onClick) task.onClick(null);
+    }
+  });
+  const num = (id, key, min) =>
+    $(id).addEventListener("change", () => {
+      const v = Number($(id).value);
+      if (Number.isFinite(v) && v >= min) app.settings[key] = v;
+      save();
+      renderAll();
+    });
+  num("dpi", "dpi", 100);
+  num("sens", "sens", 0.05);
+  $("anchor").addEventListener("change", () => {
+    app.settings.anchor = $("anchor").value;
+    save();
+  });
+  $("btnCalib").addEventListener("click", () => {
+    const plan = makeBlock(1, Date.now() & 0xffff);
+    if (SIM) simTrials("calibrate", plan, () => app.profile);
+    else runTrials("calibrate", plan, () => app.profile);
+  });
+  $("btnAnalyze").addEventListener("click", runAnalysis);
+  $("btnAccept").addEventListener("click", () => {
+    if (!app.proposal) return;
+    app.profile = app.proposal.profile;
+    app.proposal = null;
+    $("analysis").innerHTML = `<p>Profile accepted. Run another calibration block to measure the residual, then an A/B session.</p>`;
+    save();
+    renderAll();
+  });
+  $("btnResetProfile").addEventListener("click", () => {
+    app.profile = { ...defaultProfile(), lambda: lambdaForDpi(app.settings.dpi) };
+    app.proposal = null;
+    save();
+    renderAll();
+  });
+  $("btnAB").addEventListener("click", () => {
+    const plan = abPlan();
+    if (SIM) simTrials("ab", plan, profileForCond);
+    else runTrials("ab", plan, profileForCond);
+  });
+  $("btnTrack").addEventListener("click", runTracking);
+  $("btnConf").addEventListener("click", () => download("profile.conf", `# DirGain profile, device coordinates (y down)\n${toConf(app.profile)}`));
+  $("btnJson").addEventListener("click", () =>
+    download(
+      "profile.json",
+      JSON.stringify({ format: "dirgain-profile", version: 1, profile: app.profile, settings: app.settings, created: new Date().toISOString() }, null, 2),
+      "application/json",
+    ),
+  );
+  $("btnData").addEventListener("click", () =>
+    download("dirgain-data.json", JSON.stringify({ format: "dirgain-data", version: 1, ...app, simUser: undefined, proposal: undefined }), "application/json"),
+  );
+  $("importData").addEventListener("change", async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      if (d.format !== "dirgain-data" || !Array.isArray(d.sessions)) throw new Error("not a DirGain data file");
+      app.sessions = d.sessions;
+      app.settings = { ...app.settings, ...d.settings };
+      app.profile = { ...defaultProfile(), ...d.profile };
+      save();
+      renderAll();
+    } catch (err) {
+      alert(`Import failed: ${err.message}`);
+    }
+  });
+  $("btnClear").addEventListener("click", () => {
+    if (!confirm("Delete all sessions stored in this browser?")) return;
+    app.sessions = [];
+    save();
+    renderAll();
+  });
+  renderAll();
+  save();
+}
+
+init();
+
+</script>
+</body>
+</html>

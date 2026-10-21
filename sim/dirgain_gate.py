@@ -25,29 +25,35 @@ def eb(c, cov, tau=0.03):
     se2 = np.diag(cov)
     return c * tau**2 / (tau**2 + se2)
 
-print("gate = joint Wald test on 4 harmonic coefs (p<alpha) + empirical-Bayes shrink (prior SD tau=3%)")
-print(f"{'n':>5} {'sigma':>6} {'alpha':>6} | {'power':>6} {'RMS err % (real)':>17} {'none %':>7} | {'false+':>6} {'|profile| % (null)':>19}")
-ideal = -S.bias_fn(S.GRID); ideal -= ideal.mean()
-for sigma in (0.15, 0.25):
-    for n in (240, 400, 800):
-        for alpha in (0.01,):
-            hit = 0; errs = []
-            fp = 0; mags = []
-            for _ in range(400):
-                th, y = S.make_trials(n, S.bias_fn, lambda t: 0.0, sigma)
-                c, cov, _ = fit_full(th, y)
-                if wald_p(c, cov) < alpha:
-                    hit += 1
-                    prof = -(S.basis(S.GRID, 2) @ eb(c, cov)); prof -= prof.mean()
-                    errs.append(S.rms(prof - ideal))
-                else:
-                    errs.append(S.rms(ideal))
-                th, y = S.make_trials(n, lambda t: 0.0, lambda t: 0.0, sigma)
-                c, cov, _ = fit_full(th, y)
-                if wald_p(c, cov) < alpha:
-                    fp += 1
-                    prof = S.basis(S.GRID, 2) @ eb(c, cov)
-                    mags.append(S.rms(prof - prof.mean()))
-                else:
-                    mags.append(0.0)
-            print(f"{n:>5} {sigma:>6} {alpha:>6} | {hit/400:>6.2f} {100*np.mean(errs):>17.2f} {100*S.rms(ideal):>7.2f} | {fp/400:>6.3f} {100*np.mean(mags):>19.2f}")
+
+def main():
+    print("gate = joint Wald test on 4 harmonic coefs (p<alpha) + empirical-Bayes shrink (prior SD tau=3%)")
+    print(f"{'n':>5} {'sigma':>6} {'alpha':>6} | {'power':>6} {'RMS err % (real)':>17} {'none %':>7} | {'false+':>6} {'|profile| % (null)':>19}")
+    ideal = -S.bias_fn(S.GRID); ideal -= ideal.mean()
+    for sigma in (0.15, 0.25):
+        for n in (240, 400, 800):
+            for alpha in (0.01,):
+                hit = 0; errs = []
+                fp = 0; mags = []
+                for _ in range(400):
+                    th, y = S.make_trials(n, S.bias_fn, lambda t: 0.0, sigma)
+                    c, cov, _ = fit_full(th, y)
+                    if wald_p(c, cov) < alpha:
+                        hit += 1
+                        prof = -(S.basis(S.GRID, 2) @ eb(c, cov)); prof -= prof.mean()
+                        errs.append(S.rms(prof - ideal))
+                    else:
+                        errs.append(S.rms(ideal))
+                    th, y = S.make_trials(n, lambda t: 0.0, lambda t: 0.0, sigma)
+                    c, cov, _ = fit_full(th, y)
+                    if wald_p(c, cov) < alpha:
+                        fp += 1
+                        prof = S.basis(S.GRID, 2) @ eb(c, cov)
+                        mags.append(S.rms(prof - prof.mean()))
+                    else:
+                        mags.append(0.0)
+                print(f"{n:>5} {sigma:>6} {alpha:>6} | {hit/400:>6.2f} {100*np.mean(errs):>17.2f} {100*S.rms(ideal):>7.2f} | {fp/400:>6.3f} {100*np.mean(mags):>19.2f}")
+
+
+if __name__ == "__main__":
+    main()
